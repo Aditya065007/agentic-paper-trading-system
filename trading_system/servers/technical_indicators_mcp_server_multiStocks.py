@@ -19,11 +19,10 @@
 """
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
-
 import pandas as pd
 import requests
-from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("TechnicalIndicators")
 
@@ -79,14 +78,32 @@ def _fetch_bars(symbols: list[str], lookback_days: int, timeframe: str) -> dict:
 
     rows: dict[str, list] = {}
     while True:
-        resp = requests.get(url, headers=HEADERS, params=params, timeout=20)
-        resp.raise_for_status()
-        payload = resp.json()
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(
+                    url,
+                    headers=HEADERS,
+                    params=params,
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+                break
+
+            except requests.RequestException:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(2 ** attempt)
+
         for sym, bars in (payload.get("bars") or {}).items():
             rows.setdefault(sym, []).extend(bars)
+
         token = payload.get("next_page_token")
         if not token:
             break
+
         params["page_token"] = token
 
     frames = {}
