@@ -37,8 +37,11 @@ HEADERS = {
     "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
 }
 
-# { "AAPL": {"timeframe": "1Day", "df": DataFrame}, ... }
-_cache: dict = {}
+# Cache is keyed by (symbol, timeframe) so Daily and Hourly data stay separate.
+_cache: dict[tuple[str, str], dict] = {}
+# The current run's timeframe is used by indicator tools whose MCP contract
+# accepts only a symbol.
+_active_timeframe: str | None = None
 
 
 # ============================================================
@@ -100,15 +103,23 @@ def _fetch_bars(symbols: list[str], lookback_days: int, timeframe: str) -> dict:
 
 # Get the DataFrame for a symbol, fetching it if not already cached.
 def _get_df(symbol: str):
-    """Return cached data for symbol; fetch it only if it is not cached."""
+    """Return cached data for the active timeframe."""
     symbol = symbol.upper()
-    if symbol not in _cache:
-        frames = _fetch_bars([symbol], 180, "1Day")
-        if symbol not in frames:
-            raise ValueError(f"No bar data for '{symbol}'. Run fetch_ohlcv_batch "
-                             "first and check the ticker.")
-        _cache[symbol] = {"timeframe": "1Day", "df": frames[symbol]}
-    return _cache[symbol]["df"]
+
+    if _active_timeframe is None:
+        raise ValueError(
+            f"No active timeframe for '{symbol}'. Run fetch_ohlcv_batch first."
+        )
+
+    key = (symbol, _active_timeframe)
+
+    if key not in _cache:
+        raise ValueError(
+            f"No cached data for '{symbol}' at timeframe "
+            f"'{_active_timeframe}'. Run fetch_ohlcv_batch first."
+        )
+
+    return _cache[key]["df"]
 
 
 # Generate a summary of the DataFrame for a symbol.
@@ -205,6 +216,7 @@ def fetch_ohlcv_batch(symbols: list[str], lookback_days: int = 180,
         missing : symbols for which no data came back
         status  : "ok"
     """
+    global _active_timeframe
     syms   = _clean_symbols(symbols)
     frames = _fetch_bars(syms, lookback_days, timeframe)
 
@@ -214,7 +226,8 @@ def fetch_ohlcv_batch(symbols: list[str], lookback_days: int = 180,
         if df is None or df.empty:
             missing.append(s)
             continue
-        _cache[s] = {"timeframe": timeframe, "df": df}
+        _cache[(s, timeframe)] = {"timeframe": timeframe, "df": df}
+        _active_timeframe = timeframe
         fetched.append(_summary(s, df, timeframe))
     return {"fetched": fetched, "missing": missing, "status": "ok"}
 
@@ -230,7 +243,7 @@ def fetch_ohlcv(symbol: str, lookback_days: int = 180, timeframe: str = "1Day") 
     frames = _fetch_bars([symbol], lookback_days, timeframe)
     if symbol not in frames:
         raise ValueError(f"No bar data returned for '{symbol}'.")
-    _cache[symbol] = {"timeframe": timeframe, "df": frames[symbol]}
+    _cache[(symbol, timeframe)] = {"timeframe": timeframe, "df": frames[symbol]}
     return _summary(symbol, frames[symbol], timeframe)
 
 

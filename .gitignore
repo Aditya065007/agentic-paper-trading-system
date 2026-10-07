@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+
+# Project outputs
+trading_system/run_reports/*
+!trading_system/run_reports/.gitkeep
+
+trading_system/memory/*
+!trading_system/memory/.gitkeep
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

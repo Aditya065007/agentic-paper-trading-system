@@ -1,0 +1,6 @@
+pandas
+requests
+mcp
+pydantic
+crewai
+crewai-tools
