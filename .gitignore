@@ -22,3 +22,7 @@ trading_system/memory/*
 .DS_Store
 .vscode/
 .idea/
+
+# Runtime reports
+run_reports/
+trading_system/reports/
