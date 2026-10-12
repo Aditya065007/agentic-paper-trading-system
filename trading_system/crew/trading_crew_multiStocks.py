@@ -878,37 +878,41 @@ def make_decisions(
         # configuration requires the news group.
         # --------------------------------------------------------------
 
+
         if composite is None:
-
             decision = "HOLD"
-
             reason = (
                 "M2-B composite unavailable; "
                 "fail-safe HOLD."
             )
 
-        elif triage == "buy":
-
+        elif triage == "clear_buy":
             decision = "BUY"
-
             reason = (
                 "M2-B deterministic BUY; "
                 f"composite={float(composite):.4f}."
             )
 
-        elif triage == "sell":
+        elif triage == "clear_sell":
+            if symbol in held:
+                decision = "SELL"
+                reason = (
+                    "M2-B deterministic SELL; "
+                    f"composite={float(composite):.4f}."
+                )
+            else:
+                decision = "HOLD"
+                reason = (
+                    "Long-only policy: cannot sell "
+                    "a symbol that is not held."
+                )
 
-            decision = "SELL"
-
-            reason = (
-                "M2-B deterministic SELL; "
-                f"composite={float(composite):.4f}."
-            )
+        elif triage == "borderline":
+            decision = "HOLD"
+            reason = "borderline, awaiting M7 debate"
 
         else:
-
             decision = "HOLD"
-
             reason = (
                 "M2-B deterministic HOLD; "
                 f"triage={triage}, "
