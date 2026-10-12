@@ -1,0 +1,28 @@
+provider: groq
+api_key_env: GROQ_API_KEY
+
+# Verify current Groq model IDs before enabling advisory calls.
+groq_integration_verified: false # [VERIFY: provider/model syntax, auth, call, and usage behavior]
+model_assignments:
+  news: "[VERIFY: approved Groq model ID]"
+  bull: "[VERIFY: approved Groq model ID]"
+  bear: "[VERIFY: approved Groq model ID]"
+  judge: "[VERIFY: approved Groq model ID]"
+  reflection: "[VERIFY: approved Groq model ID]"
+
+temperature: 0.0
+max_output_tokens: null # [VERIFY: supported output limit for each approved model]
+
+# Local retry policy only; this does not assert provider rate limits.
+retry:
+  max_attempts: 2
+  initial_backoff_seconds: 1.0
+  max_backoff_seconds: 4.0
+
+debate:
+  max_bullets: 3
+  max_headlines: 3
+  max_recent_lessons: 3
+  judge_validation_retries: 1
+
+llm_influence_cap: 0.15

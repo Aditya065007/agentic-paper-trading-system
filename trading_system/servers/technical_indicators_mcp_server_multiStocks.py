@@ -37,8 +37,10 @@ from mcp.server.fastmcp import FastMCP
 
 from trading_system.servers.tools.indicators import compute_indicators
 from trading_system.servers.tools.scoring import score_indicators
+from trading_system.servers.tools.news import register_news_tools
 
 mcp = FastMCP("TechnicalIndicators")
+register_news_tools(mcp)
 
 ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")

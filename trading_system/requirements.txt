@@ -4,3 +4,4 @@ mcp
 pydantic
 crewai
 crewai-tools
+streamlit
