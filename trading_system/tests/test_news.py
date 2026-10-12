@@ -229,7 +229,9 @@ class NewsToolTests(unittest.TestCase):
             with_news["composite"] - without_news_component["composite"],
             WEIGHTS["core"]["news"] * sentiment["news_score"])
         self.assertIsNone(no_news["sub_scores"]["news"])
-        self.assertIsNone(no_news["composite"])
+        self.assertAlmostEqual(
+            no_news["composite"],
+            without_news_component["composite"] / (1 - WEIGHTS["core"]["news"]))
 
     @patch("servers.tools.news._load_finbert", side_effect=RuntimeError("offline"))
     def test_unavailable_news_remains_missing_in_m2b(self, load_finbert):
@@ -239,7 +241,11 @@ class NewsToolTests(unittest.TestCase):
             news_score=sentiment["news_score"])
         self.assertIsNone(sentiment["news_score"])
         self.assertIsNone(result["sub_scores"]["news"])
-        self.assertIsNone(result["composite"])
+        neutral = score_indicators(
+            "AAPL", "1Day", "core", "Technology", m2a_result(), news_score=0.0)
+        self.assertAlmostEqual(
+            result["composite"],
+            neutral["composite"] / (1 - WEIGHTS["core"]["news"]))
 
     def test_news_registration_uses_the_supplied_mcp_instance(self):
         registered = []

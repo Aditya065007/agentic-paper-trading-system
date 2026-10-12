@@ -38,7 +38,6 @@ TRIAGE_THRESHOLDS = {
 BORDERLINE_BUFFER = 0.10
 VERIFY_WARNINGS = (
     "[VERIFY] Equal-mean aggregation within scoring groups has no approved intra-group weights.",
-    "[VERIFY] Missing weighted groups block the composite; confirm this strict missing-data policy.",
     "[VERIFY] Borderline covers the 0.10 interval immediately inside each clear threshold; clear thresholds take precedence.",
 )
 
@@ -142,9 +141,9 @@ def _group_score(names, indicators: Mapping, supplied_news_score=None) -> tuple[
             values.append(value)
         else:
             missing.append(name)
-    if missing:
+    if not values:
         return None, missing
-    return sum(values) / len(values), []
+    return sum(values) / len(values), missing
 
 
 def _normalize_result(indicator_result):
@@ -207,8 +206,9 @@ def score_indicators(symbol: str, timeframe: str, sleeve: str, sector: str,
                      indicator_result, config=None, news_score=None) -> dict:
     """Convert one M2-A result to deterministic group scores and triage.
 
-    Missing group policy is strict: if any weighted group is unavailable, the
-    composite is unavailable rather than zero-filled or renormalized.
+    Missing indicators are excluded from their group mean. Missing groups are
+    excluded from the composite and the remaining weights are renormalized,
+    unless more than 30% of the configured scoring weight is missing.
     """
     normalized_input, unpacked = _normalize_result(indicator_result)
     result = _base_row(symbol, timeframe, sleeve, sector,
@@ -267,13 +267,28 @@ def score_indicators(symbol: str, timeframe: str, sleeve: str, sector: str,
     result["missing_indicators"] = sorted(name for name in missing if name in active_indicators)
 
     weights = WEIGHTS[sleeve]
-    if all(_finite(result["sub_scores"][group]) for group in weights):
-        result["composite"] = sum(weights[group] * result["sub_scores"][group]
-                                   for group in weights)
-        result["triage"] = classify_triage(result["composite"], timeframe)
-    else:
+    missing_weight = sum(
+        weight for group, weight in weights.items()
+        if not _finite(result["sub_scores"][group])
+    )
+    if missing_weight > 0.30 + 1e-12:
         result["warnings"].append(
-            "Composite unavailable because one or more weighted scoring groups are missing; no renormalization applied.")
+            f"Composite unavailable: {missing_weight:.1%} of scoring weight is missing, "
+            "which exceeds the 30% limit.")
+    else:
+        available_weight = sum(
+            weight for group, weight in weights.items()
+            if _finite(result["sub_scores"][group])
+        )
+        if available_weight > 0:
+            result["composite"] = sum(
+                weights[group] * result["sub_scores"][group]
+                for group in weights if _finite(result["sub_scores"][group])
+            ) / available_weight
+            result["triage"] = classify_triage(result["composite"], timeframe)
+        else:
+            result["warnings"].append(
+                "Composite unavailable because all weighted scoring groups are missing.")
 
     adx = _raw_adx(indicators)
     result["adx"] = adx
