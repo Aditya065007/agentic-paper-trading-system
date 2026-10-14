@@ -761,238 +761,116 @@ def apply_m1_price_fallback(
 
 def make_decisions(
     m2_report: dict[str, Any],
-    held_symbols: list[str],
+    held_symbols: list[str] | None,
 ) -> list[dict[str, Any]]:
+    """Convert M2 output into deterministic BUY/SELL/HOLD decisions.
+
+    Invalid or unusable M2 data always fails safe to HOLD. The first row for
+    each symbol wins so malformed duplicate rows cannot override a decision.
     """
-    Deterministic M2-B decision engine.
-
-    M2-B is authoritative for technical triage.
-
-    BUY / SELL / HOLD are derived from the deterministic
-    composite score and triage output.
-
-    If M2-B cannot produce a composite score:
-        HOLD
-
-    LLM/M4/M5 are intentionally not involved here yet.
-    """
-
-    if not isinstance(
-        m2_report,
-        dict,
-    ):
-
-        raise ValueError(
-            "M2 report must be a dictionary."
-        )
+    if not isinstance(m2_report, dict):
+        raise ValueError("M2 report must be a dictionary.")
 
     held = {
         str(symbol).upper()
-        for symbol in held_symbols
+        for symbol in (held_symbols or [])
     }
-
-    results = m2_report.get(
-        "results",
-        [],
-    )
-
-    missing = m2_report.get(
-        "missing",
-        [],
-    )
-
-    if not isinstance(
-        results,
-        list,
-    ):
+    results = m2_report.get("results", [])
+    missing = m2_report.get("missing", [])
+    if not isinstance(results, list):
         results = []
-
-    if not isinstance(
-        missing,
-        list,
-    ):
+    if not isinstance(missing, list):
         missing = []
 
-    decisions: list[
-        dict[str, Any]
-    ] = []
+    decisions: list[dict[str, Any]] = []
+    represented: set[str] = set()
 
     for item in results:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
+        if not isinstance(item, dict):
             continue
-
-        symbol = str(
-            item.get(
-                "symbol",
-                "",
-            )
-        ).upper()
-
-        if not symbol:
+        try:
+            symbol = str(item.get("symbol", "")).strip().upper()
+        except Exception:
+            # Without a usable symbol there is no safe decision row to emit.
             continue
+        if not symbol or symbol in represented:
+            continue
+        # Reserve the symbol on its first row, even if that row is malformed.
+        represented.add(symbol)
 
-        score = item.get(
-            "score"
-        ) or {}
+        try:
+            score = item.get("score")
+            if not isinstance(score, dict):
+                score = {}
+            indicators = item.get("indicators")
+            if not isinstance(indicators, dict):
+                indicators = {}
+            context = indicators.get("context")
+            if not isinstance(context, dict):
+                context = {}
 
-        indicators = item.get(
-            "indicators"
-        ) or {}
-
-        # Defensive context lookup.
-        context = indicators.get(
-            "context"
-        ) or {}
-
-        composite = score.get(
-            "composite"
-        )
-
-        triage = str(
-            score.get(
-                "triage",
-                "hold",
+            composite = score.get("composite")
+            valid_composite = (
+                isinstance(composite, (int, float))
+                and not isinstance(composite, bool)
+                and math.isfinite(composite)
             )
-        ).lower()
+            triage = str(score.get("triage", "hold")).lower()
+            last_close = context.get("last_close")
+            if last_close is None:
+                last_close = score.get("last_close")
 
-        # M2-A may not expose last_close in context.
-        # Try context first, then M2-B score.
-        last_close = context.get(
-            "last_close"
-        )
-
-        if last_close is None:
-
-            last_close = score.get(
-                "last_close"
-            )
-
-        # --------------------------------------------------------------
-        # Fail-safe when composite is unavailable.
-        #
-        # This is expected until M4/news is connected if the scoring
-        # configuration requires the news group.
-        # --------------------------------------------------------------
-
-
-        if composite is None:
-            decision = "HOLD"
-            reason = (
-                "M2-B composite unavailable; "
-                "fail-safe HOLD."
-            )
-
-        elif triage == "clear_buy":
-            decision = "BUY"
-            reason = (
-                "M2-B deterministic BUY; "
-                f"composite={float(composite):.4f}."
-            )
-
-        elif triage == "clear_sell":
-            if symbol in held:
-                decision = "SELL"
-                reason = (
-                    "M2-B deterministic SELL; "
-                    f"composite={float(composite):.4f}."
-                )
+            if not valid_composite:
+                decision = "HOLD"
+                if composite is None:
+                    reason = "M2-B composite unavailable; fail-safe HOLD."
+                else:
+                    reason = (
+                        "M2-B composite is not a finite real number; "
+                        "fail-safe HOLD."
+                    )
+            elif triage == "clear_buy":
+                decision = "BUY"
+                reason = f"M2-B deterministic BUY; composite={composite:.4f}."
+            elif triage == "clear_sell":
+                if symbol in held:
+                    decision = "SELL"
+                    reason = f"M2-B deterministic SELL; composite={composite:.4f}."
+                else:
+                    decision = "HOLD"
+                    reason = "Long-only policy: cannot sell a symbol that is not held."
+            elif triage == "borderline":
+                decision = "HOLD"
+                reason = "borderline, awaiting M7 debate"
             else:
                 decision = "HOLD"
                 reason = (
-                    "Long-only policy: cannot sell "
-                    "a symbol that is not held."
+                    "M2-B deterministic HOLD; "
+                    f"triage={triage}, composite={composite:.4f}."
                 )
 
-        elif triage == "borderline":
-            decision = "HOLD"
-            reason = "borderline, awaiting M7 debate"
-
-        else:
-            decision = "HOLD"
-            reason = (
-                "M2-B deterministic HOLD; "
-                f"triage={triage}, "
-                f"composite={float(composite):.4f}."
-            )
-
-        decisions.append(
-            {
+            decisions.append({
                 "symbol": symbol,
                 "decision": decision,
                 "reason": reason,
                 "held": symbol in held,
                 "latest_close": last_close,
-                "as_of": score.get(
-                    "as_of"
-                ),
+                "as_of": score.get("as_of"),
                 "composite": composite,
                 "triage": triage,
-                "regime": score.get(
-                    "regime"
-                ),
-                "regime_strength": score.get(
-                    "regime_strength"
-                ),
-                "adx": score.get(
-                    "adx"
-                ),
-                "sub_scores": score.get(
-                    "sub_scores",
-                    {},
-                ),
-                "missing_indicators": indicators.get(
-                    "missing_indicators",
-                    [],
-                ),
-                "warnings": indicators.get(
-                    "warnings",
-                    [],
-                ),
-            }
-        )
-
-    # --------------------------------------------------------------
-    # Symbols M2 could not process.
-    # Fail-safe HOLD.
-    # --------------------------------------------------------------
-
-    represented = {
-        item["symbol"]
-        for item in decisions
-        if item.get("symbol")
-    }
-
-    for item in missing:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        symbol = str(
-            item.get(
-                "symbol",
-                "",
-            )
-        ).upper()
-
-        if (
-            not symbol
-            or symbol in represented
-        ):
-            continue
-
-        decisions.append(
-            {
+                "regime": score.get("regime"),
+                "regime_strength": score.get("regime_strength"),
+                "adx": score.get("adx"),
+                "sub_scores": score.get("sub_scores", {}),
+                "missing_indicators": indicators.get("missing_indicators", []),
+                "warnings": indicators.get("warnings", []),
+            })
+        except Exception as exc:
+            decisions.append({
                 "symbol": symbol,
                 "decision": "HOLD",
                 "reason": (
-                    "M2 returned no usable result; "
+                    f"M2 result row unusable ({type(exc).__name__}); "
                     "fail-safe HOLD."
                 ),
                 "held": symbol in held,
@@ -1004,9 +882,33 @@ def make_decisions(
                 "regime_strength": None,
                 "adx": None,
                 "sub_scores": {},
-                "missing": item,
-            }
-        )
+                "missing_indicators": [],
+                "warnings": [],
+            })
+
+    # Symbols M2 could not process: fail-safe HOLD, without duplicate output.
+    for item in missing:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol", "")).strip().upper()
+        if not symbol or symbol in represented:
+            continue
+        represented.add(symbol)
+        decisions.append({
+            "symbol": symbol,
+            "decision": "HOLD",
+            "reason": "M2 returned no usable result; fail-safe HOLD.",
+            "held": symbol in held,
+            "latest_close": None,
+            "as_of": None,
+            "composite": None,
+            "triage": "hold",
+            "regime": None,
+            "regime_strength": None,
+            "adx": None,
+            "sub_scores": {},
+            "missing": item,
+        })
 
     return decisions
 
