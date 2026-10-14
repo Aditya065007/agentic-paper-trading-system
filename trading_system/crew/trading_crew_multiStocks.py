@@ -44,6 +44,8 @@ import json
 import math
 import os
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -1340,7 +1342,7 @@ async def fetch_news_scores(
 # ============================================================================
 
 
-async def run_strategy(
+async def _run_strategy_impl(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
@@ -1648,6 +1650,256 @@ async def run_strategy(
         "decisions": decisions,
         "plan": plan,
     }
+
+
+# ============================================================================
+# M9 — RUN REPORT + JOURNAL (never changes the run outcome)
+# ============================================================================
+
+
+def _utc_now_iso() -> str:
+
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def _new_run_id() -> str:
+
+    return (
+        "run-"
+        + datetime.now(
+            timezone.utc
+        ).strftime("%Y%m%dT%H%M%S")
+        + "-"
+        + uuid.uuid4().hex[:10]
+    )
+
+
+def _is_degraded(
+    result: dict[str, Any],
+) -> bool:
+    """
+    A completed run is degraded when some input was unavailable.
+
+    score.warnings is intentionally NOT used: the scoring layer appends
+    [VERIFY] warnings to every row, so they would always be present.
+    """
+
+    def has_missing(report: Any) -> bool:
+
+        return (
+            not isinstance(report, dict)
+            or bool(report.get("missing"))
+        )
+
+    return bool(
+        result.get("news_warnings")
+        or has_missing(result.get("m2_report"))
+        or has_missing(result.get("fetch_report"))
+        or any(
+            isinstance(item, dict)
+            and item.get("composite") is None
+            for item in result.get("decisions") or []
+        )
+    )
+
+
+def _build_m9_payload(
+    result: dict[str, Any],
+    run_id: str,
+    timestamp: str,
+    degraded: bool,
+) -> dict[str, Any]:
+    """Compact report payload: no raw M1/M2 reports."""
+
+    decisions = [
+        {
+            key: item.get(key)
+            for key in (
+                "symbol",
+                "decision",
+                "reason",
+                "held",
+                "triage",
+                "composite",
+                "latest_close",
+                "regime",
+                "missing_indicators",
+            )
+        }
+        for item in result.get("decisions") or []
+        if isinstance(item, dict)
+    ]
+
+    warnings = list(
+        result.get("news_warnings") or []
+    )
+
+    for label, key in (
+        ("M1", "fetch_report"),
+        ("M2", "m2_report"),
+    ):
+        report = result.get(key)
+        if isinstance(report, dict):
+            for item in report.get("missing") or []:
+                warnings.append(
+                    f"{label} missing: "
+                    + (
+                        str(item.get("symbol"))
+                        if isinstance(item, dict)
+                        else str(item)
+                    )
+                )
+
+    return {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "status": result.get("status"),
+        "degraded": degraded,
+        "symbols": result.get("symbols"),
+        "timeframe": result.get("timeframe"),
+        "lookback_days": result.get("lookback_days"),
+        "holdings": result.get("holdings"),
+        "decisions": decisions,
+        "actions": result.get("plan"),
+        "warnings": warnings,
+    }
+
+
+def _write_m9_artifacts(
+    payload: dict[str, Any],
+    reports_dir: Any = None,
+    memory_dir: Any = None,
+) -> tuple[str | None, str | None]:
+    """
+    Write one run report and one journal entry.
+
+    The M9 modules are imported lazily so that importing this file has
+    no side effects and so that launching it as a script still works.
+    A writer failure is printed to stderr and never changes the run.
+    """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    report_path = None
+    journal_path = None
+
+    try:
+        from trading_system.crew.reporting import record_run_report
+
+        report_path = str(
+            record_run_report(payload, reports_dir)
+        )
+
+    except Exception as exc:
+        print(
+            f"M9 report writer warning: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+    try:
+        from trading_system.crew.memory import record_memory
+
+        decisions = payload.get("decisions") or []
+
+        counts = {
+            name: sum(
+                1
+                for item in decisions
+                if isinstance(item, dict)
+                and item.get("decision") == name
+            )
+            for name in ("BUY", "SELL", "HOLD")
+        }
+
+        journal_path = str(
+            record_memory(
+                {
+                    "run_id": payload.get("run_id"),
+                    "timestamp": payload.get("timestamp"),
+                    "agent": "M8 orchestrator",
+                    "status": payload.get("status"),
+                    "symbols": payload.get("symbols"),
+                    "timeframe": payload.get("timeframe"),
+                    "result": {
+                        "degraded": payload.get("degraded"),
+                        "decision_counts": counts,
+                    },
+                    "warnings": payload.get("warnings"),
+                    "errors": payload.get("errors"),
+                },
+                memory_dir,
+            )
+        )
+
+    except Exception as exc:
+        print(
+            f"M9 journal writer warning: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+    return report_path, journal_path
+
+
+async def run_strategy(
+    symbols: list[str],
+    lookback_days: int,
+    timeframe: str,
+) -> dict[str, Any]:
+    """
+    Public entry point: run the strategy, then record M9 artifacts.
+
+    status stays "ok" for a completed run (the CLI exit code depends on
+    it); degraded is reported separately. A failed run records a failure
+    report and journal entry and then re-raises.
+    """
+
+    run_id = _new_run_id()
+    started_at = _utc_now_iso()
+
+    try:
+        result = await _run_strategy_impl(
+            symbols=symbols,
+            lookback_days=lookback_days,
+            timeframe=timeframe,
+        )
+
+    except Exception as exc:
+        _write_m9_artifacts(
+            {
+                "run_id": run_id,
+                "timestamp": started_at,
+                "status": "failed",
+                "degraded": True,
+                "symbols": symbols,
+                "timeframe": timeframe,
+                "lookback_days": lookback_days,
+                "errors": [
+                    f"{type(exc).__name__}: {exc}"
+                ],
+            }
+        )
+        raise
+
+    degraded = _is_degraded(result)
+
+    report_path, journal_path = _write_m9_artifacts(
+        _build_m9_payload(
+            result,
+            run_id,
+            started_at,
+            degraded,
+        )
+    )
+
+    result["run_id"] = run_id
+    result["degraded"] = degraded
+    result["report_path"] = report_path
+    result["journal_path"] = journal_path
+
+    return result
 
 
 # ============================================================================
