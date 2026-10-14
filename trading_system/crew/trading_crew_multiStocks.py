@@ -1253,6 +1253,89 @@ def print_report(
 
 
 # ============================================================================
+# M4 NEWS SCORES (optional, non-fatal)
+# ============================================================================
+
+
+async def fetch_news_scores(
+    mcp: Any,
+    symbols: list[str],
+    available_tools: list[str],
+) -> tuple[dict[str, float | None], list[str]]:
+    """
+    Fetch M4 news sentiment for M2 scoring.
+
+    Calls get_news and then score_headlines in the same MCP session and
+    returns ({SYMBOL: news_score or None}, warnings).
+
+    News is optional. Any failure returns ({}, [warning]) so the scoring
+    layer excludes the news group and renormalizes the remaining weights.
+    This function never raises and never prints credentials.
+    """
+
+    missing_tools = {
+        "get_news",
+        "score_headlines",
+    } - set(available_tools)
+
+    if missing_tools:
+        return {}, [
+            "News tools unavailable: "
+            + ", ".join(sorted(missing_tools))
+        ]
+
+    try:
+        news = await mcp.call_tool(
+            "get_news",
+            {"symbols": list(symbols)},
+        )
+
+        sentiment = await mcp.call_tool(
+            "score_headlines",
+            {"headlines": news},
+        )
+
+    except Exception as exc:
+        return {}, [
+            f"News unavailable: {type(exc).__name__}: {exc}"
+        ]
+
+    warnings: list[str] = []
+
+    if isinstance(news, dict):
+        for key in ("warnings", "errors"):
+            values = news.get(key)
+            if isinstance(values, (list, tuple)):
+                warnings.extend(
+                    str(value) for value in values if value
+                )
+
+    by_symbol = (
+        sentiment.get("by_symbol")
+        if isinstance(sentiment, dict)
+        else None
+    )
+
+    if not isinstance(by_symbol, dict):
+        warnings.append(
+            "News unavailable: score_headlines returned no by_symbol data."
+        )
+        return {}, warnings
+
+    scores: dict[str, float | None] = {}
+
+    for symbol in symbols:
+        entry = by_symbol.get(symbol)
+        scores[symbol] = (
+            entry.get("news_score")
+            if isinstance(entry, dict)
+            else None
+        )
+
+    return scores, warnings
+
+
+# ============================================================================
 # MAIN STRATEGY
 # ============================================================================
 
@@ -1424,6 +1507,26 @@ async def run_strategy(
         )
 
         # ==============================================================
+        # M4 — NEWS SCORES (optional; failure never stops the run)
+        # ==============================================================
+
+        news_scores, news_warnings = await fetch_news_scores(
+            mcp=mcp,
+            symbols=symbols,
+            available_tools=available_tools,
+        )
+
+        print()
+        print(
+            f"M4 news scores: {news_scores}"
+        )
+
+        for warning in news_warnings:
+            print(
+                f"M4 warning: {warning}"
+            )
+
+        # ==============================================================
         # M2 — INDICATORS + DETERMINISTIC SCORING
         # ==============================================================
 
@@ -1432,6 +1535,7 @@ async def run_strategy(
             "timeframe": timeframe,
             "sleeve": "core",
             "sector": None,
+            "news_scores": news_scores,
         }
 
         print()
@@ -1539,6 +1643,8 @@ async def run_strategy(
         "holdings": holdings,
         "fetch_report": fetch_report,
         "m2_report": m2_report,
+        "news_scores": news_scores,
+        "news_warnings": news_warnings,
         "decisions": decisions,
         "plan": plan,
     }

@@ -728,10 +728,16 @@ def calculate_m2_batch(
     timeframe: str = "1Day",
     sleeve: str = "core",
     sector: str | None = None,
+    news_scores: dict[str, float | None] | None = None,
 ) -> dict:
     """
     Run M2-A indicators and M2-B deterministic scoring for all
     requested symbols using only the canonical MCP cache.
+
+    news_scores is an optional {SYMBOL: score or None} map supplied by
+    the orchestrator (M4). A missing or invalid score is excluded by the
+    scorer and the remaining weights are renormalized. No news is
+    fetched here.
 
     M1 fetch_ohlcv_batch must be called first in the same MCP
     session/process. SPY must also be present in that cache so
@@ -759,6 +765,11 @@ def calculate_m2_batch(
     except Exception:
         spy_df = None
 
+    supplied_news = {}
+    if isinstance(news_scores, dict):
+        for raw_symbol, value in news_scores.items():
+            supplied_news[str(raw_symbol).strip().upper()] = value
+
     results = []
     missing = []
 
@@ -781,6 +792,7 @@ def calculate_m2_batch(
                 sleeve=sleeve,
                 sector=sector,
                 indicator_result=indicator_dict,
+                news_score=supplied_news.get(symbol),
             )
 
             results.append({
