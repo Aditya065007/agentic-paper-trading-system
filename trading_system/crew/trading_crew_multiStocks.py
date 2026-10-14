@@ -1121,11 +1121,14 @@ def print_report(
         ):
             continue
 
+        bars = item.get("bars_fetched", item.get("bars"))
+        as_of = item.get("end", item.get("as_of"))
+
         print(
             f"{str(item.get('symbol', '')):>6} | "
-            f"bars={item.get('bars')} | "
+            f"bars={bars} | "
             f"last_close={item.get('last_close')} | "
-            f"as_of={item.get('as_of')}"
+            f"as_of={as_of}"
         )
 
     if fetch_missing:
