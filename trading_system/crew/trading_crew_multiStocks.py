@@ -1346,6 +1346,7 @@ async def _run_strategy_impl(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
+    advisory_band: str | None = None,
 ) -> dict[str, Any]:
 
     symbols = normalize_symbols(
@@ -1394,6 +1395,15 @@ async def _run_strategy_impl(
     print(
         "LLM decision-making: DISABLED"
     )
+
+    if advisory_band:
+
+        print(
+            "LLM advisory: ENABLED "
+            f"(M7 debate, band={advisory_band}; the Judge may move a "
+            "composite by at most the configured cap and code rechecks "
+            "the thresholds)"
+        )
 
     print(
         "MCP execution: DIRECT ClientSession / stdio"
@@ -1614,6 +1624,24 @@ async def _run_strategy_impl(
     )
 
     # ==================================================================
+    # M7 ADVISORY DEBATE (opt-in; failure never changes a decision)
+    # ==================================================================
+
+    advisory_outcomes = None
+    advisory_warnings: list[str] = []
+
+    if advisory_band:
+
+        (
+            advisory_outcomes,
+            advisory_warnings,
+        ) = await _run_advisory_step(
+            decisions=decisions,
+            timeframe=timeframe,
+            band_mode=advisory_band,
+        )
+
+    # ==================================================================
     # STARTER SIZING
     # ==================================================================
 
@@ -1637,7 +1665,7 @@ async def _run_strategy_impl(
         plan=plan,
     )
 
-    return {
+    result = {
         "status": "ok",
         "symbols": symbols,
         "lookback_days": lookback_days,
@@ -1650,6 +1678,66 @@ async def _run_strategy_impl(
         "decisions": decisions,
         "plan": plan,
     }
+
+    if advisory_band:
+
+        result["advisory"] = advisory_outcomes
+        result["advisory_warnings"] = advisory_warnings
+
+    return result
+
+
+async def _run_advisory_step(
+    decisions: list[dict[str, Any]],
+    timeframe: str,
+    band_mode: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """
+    Run the M7 debate. Any failure is reported and the deterministic
+    decisions stay exactly as M2/M8 produced them.
+    """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    try:
+        from trading_system.crew.advisory import (
+            run_advisory_debate,
+        )
+
+        # CrewAI kickoff blocks, so it runs in a worker thread.
+        outcomes = await asyncio.to_thread(
+            run_advisory_debate,
+            decisions,
+            timeframe,
+            band_mode,
+        )
+
+        warnings = [
+            warning
+            for outcome in outcomes
+            for warning in outcome.get("warnings", [])
+        ]
+
+        return outcomes, warnings
+
+    except Exception as exc:
+
+        key = os.environ.get("GROQ_API_KEY", "").strip()
+        detail = f"{type(exc).__name__}: {exc}"
+
+        if key:
+            detail = detail.replace(key, "[REDACTED]")
+
+        message = (
+            f"M7 advisory unavailable ({detail[:200]}); "
+            "deterministic decisions unchanged."
+        )
+
+        print()
+        print(message)
+
+        return [], [message]
 
 
 # ============================================================================
@@ -1695,6 +1783,7 @@ def _is_degraded(
 
     return bool(
         result.get("news_warnings")
+        or result.get("advisory_warnings")
         or has_missing(result.get("m2_report"))
         or has_missing(result.get("fetch_report"))
         or any(
@@ -1734,6 +1823,8 @@ def _build_m9_payload(
 
     warnings = list(
         result.get("news_warnings") or []
+    ) + list(
+        result.get("advisory_warnings") or []
     )
 
     for label, key in (
@@ -1752,7 +1843,7 @@ def _build_m9_payload(
                     )
                 )
 
-    return {
+    payload = {
         "run_id": run_id,
         "timestamp": timestamp,
         "status": result.get("status"),
@@ -1765,6 +1856,32 @@ def _build_m9_payload(
         "actions": result.get("plan"),
         "warnings": warnings,
     }
+
+    if result.get("advisory") is not None:
+
+        payload["advisory"] = [
+            {
+                key: item.get(key)
+                for key in (
+                    "symbol",
+                    "band_mode",
+                    "composite",
+                    "adjustment",
+                    "adjusted_composite",
+                    "decision_before",
+                    "decision_after",
+                    "bull",
+                    "bear",
+                    "reason",
+                    "status",
+                    "models",
+                )
+            }
+            for item in result["advisory"]
+            if isinstance(item, dict)
+        ]
+
+    return payload
 
 
 def _write_m9_artifacts(
@@ -1843,10 +1960,109 @@ def _write_m9_artifacts(
     return report_path, journal_path
 
 
+def _write_advisory_journals(
+    result: dict[str, Any],
+    run_id: str,
+    timestamp: str,
+    memory_dir: Any = None,
+) -> list[str]:
+    """
+    One timestamped journal entry per agent (Bull, Bear, Judge) per
+    debated symbol. A writer failure is printed and never changes the run.
+    """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    paths: list[str] = []
+
+    try:
+        from trading_system.crew.memory import record_memory
+    except Exception as exc:
+        print(
+            f"M9 advisory journal warning: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return paths
+
+    for outcome in result.get("advisory") or []:
+
+        if not isinstance(outcome, dict):
+            continue
+
+        models = outcome.get("models") or {}
+        symbol = outcome.get("symbol")
+
+        entries = (
+            (
+                f"M7 Bull {symbol}",
+                "ok" if outcome.get("bull") else "failed",
+                {
+                    "symbol": symbol,
+                    "bullets": outcome.get("bull"),
+                    "model": models.get("bull"),
+                },
+            ),
+            (
+                f"M7 Bear {symbol}",
+                "ok" if outcome.get("bear") else "failed",
+                {
+                    "symbol": symbol,
+                    "bullets": outcome.get("bear"),
+                    "model": models.get("bear"),
+                },
+            ),
+            (
+                f"M7 Judge {symbol}",
+                "ok" if outcome.get("status") == "ok" else "failed",
+                {
+                    "symbol": symbol,
+                    "adjustment": outcome.get("adjustment"),
+                    "reason": outcome.get("reason"),
+                    "composite": outcome.get("composite"),
+                    "adjusted_composite": outcome.get("adjusted_composite"),
+                    "decision_before": outcome.get("decision_before"),
+                    "decision_after": outcome.get("decision_after"),
+                    "model": models.get("judge"),
+                },
+            ),
+        )
+
+        for agent, status, body in entries:
+
+            try:
+                paths.append(
+                    str(
+                        record_memory(
+                            {
+                                "run_id": run_id,
+                                "timestamp": timestamp,
+                                "agent": agent,
+                                "status": status,
+                                "symbols": [symbol],
+                                "timeframe": result.get("timeframe"),
+                                "result": body,
+                                "warnings": outcome.get("warnings"),
+                            },
+                            memory_dir,
+                        )
+                    )
+                )
+            except Exception as exc:
+                print(
+                    f"M9 advisory journal warning: "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+
+    return paths
+
+
 async def run_strategy(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
+    advisory_band: str | None = None,
 ) -> dict[str, Any]:
     """
     Public entry point: run the strategy, then record M9 artifacts.
@@ -1860,10 +2076,19 @@ async def run_strategy(
     started_at = _utc_now_iso()
 
     try:
+        # advisory_band is only passed when requested, so the default
+        # call is exactly the pre-advisory call.
+        impl_extra = (
+            {"advisory_band": advisory_band}
+            if advisory_band
+            else {}
+        )
+
         result = await _run_strategy_impl(
             symbols=symbols,
             lookback_days=lookback_days,
             timeframe=timeframe,
+            **impl_extra,
         )
 
     except Exception as exc:
@@ -1898,6 +2123,14 @@ async def run_strategy(
     result["degraded"] = degraded
     result["report_path"] = report_path
     result["journal_path"] = journal_path
+
+    if result.get("advisory"):
+
+        result["advisory_journal_paths"] = _write_advisory_journals(
+            result,
+            run_id,
+            started_at,
+        )
 
     return result
 
@@ -1948,6 +2181,31 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--advisory",
+        action="store_true",
+        help=(
+            "Run the M7 Bull/Bear/Judge debate (CrewAI + Groq) for "
+            "symbols inside the debate band. Needs GROQ_API_KEY. "
+            "Off by default; code keeps the final decision."
+        ),
+    )
+
+    parser.add_argument(
+        "--debate-band",
+        choices=[
+            "spec",
+            "borderline",
+        ],
+        default="spec",
+        help=(
+            "Which symbols are debated with --advisory: 'spec' = within "
+            "0.10 of a clear threshold on either side (spec 8.4); "
+            "'borderline' = only rows the scorer labelled borderline "
+            "(default: spec)"
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -1962,10 +2220,17 @@ async def async_main() -> int:
 
     try:
 
+        run_extra = (
+            {"advisory_band": args.debate_band}
+            if args.advisory
+            else {}
+        )
+
         result = await run_strategy(
             symbols=args.symbols,
             lookback_days=args.lookback,
             timeframe=args.timeframe,
+            **run_extra,
         )
 
         if result.get(

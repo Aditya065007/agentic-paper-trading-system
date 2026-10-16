@@ -1,0 +1,35 @@
+# Verified Groq settings for the M8 advisory debate (used by crew/advisory.py).
+# trading_system/config/llm.yaml is left untouched on purpose (M7's own tests assert its placeholders).
+#
+# Verified live by the user on 2026-10-14: crewai.LLM calls returned "OK" for
+#   groq/openai/gpt-oss-20b and groq/openai/gpt-oss-120b (free plan).
+# Models come from the user's own key listing (GET /openai/v1/models).
+provider: groq
+api_key_env: GROQ_API_KEY
+
+groq_integration_verified: true
+model_assignments:
+  news: "openai/gpt-oss-20b"
+  bull: "openai/gpt-oss-20b"
+  bear: "openai/gpt-oss-20b"
+  judge: "openai/gpt-oss-120b"
+  reflection: "openai/gpt-oss-20b"
+
+temperature: 0.0
+# Local cap chosen by the team (not a Groq limit). Reasoning tokens count as output,
+# so do not lower this much: an empty reply fails validation and falls back to no adjustment.
+max_output_tokens: 1024
+
+# Local retry policy only; Groq free plan sample limits: 30 requests/min, 8,000 tokens/min per model.
+retry:
+  max_attempts: 2
+  initial_backoff_seconds: 1.0
+  max_backoff_seconds: 4.0
+
+debate:
+  max_bullets: 3
+  max_headlines: 3
+  max_recent_lessons: 3
+  judge_validation_retries: 1
+
+llm_influence_cap: 0.15
