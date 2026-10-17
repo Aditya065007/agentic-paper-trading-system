@@ -863,6 +863,7 @@ def make_decisions(
                 "regime": score.get("regime"),
                 "regime_strength": score.get("regime_strength"),
                 "adx": score.get("adx"),
+                "atr": score.get("atr"),
                 "sub_scores": score.get("sub_scores", {}),
                 "missing_indicators": indicators.get("missing_indicators", []),
                 "warnings": indicators.get("warnings", []),
@@ -883,6 +884,7 @@ def make_decisions(
                 "regime": None,
                 "regime_strength": None,
                 "adx": None,
+                "atr": None,
                 "sub_scores": {},
                 "missing_indicators": [],
                 "warnings": [],
@@ -908,6 +910,7 @@ def make_decisions(
             "regime": None,
             "regime_strength": None,
             "adx": None,
+            "atr": None,
             "sub_scores": {},
             "missing": item,
         })
@@ -1347,6 +1350,7 @@ async def _run_strategy_impl(
     lookback_days: int,
     timeframe: str,
     advisory_band: str | None = None,
+    guarded: bool = False,
 ) -> dict[str, Any]:
 
     symbols = normalize_symbols(
@@ -1651,6 +1655,20 @@ async def _run_strategy_impl(
     )
 
     # ==================================================================
+    # M5/M6 GUARDED PLAN (opt-in; proposes only, never places)
+    # ==================================================================
+
+    guarded_plan = None
+
+    if guarded:
+
+        guarded_plan = _run_guarded_step(decisions)
+
+        # The guarded sizing replaces the starter sizing in the report
+        # and in M9 "actions"; the starter plan stays the default.
+        plan = guarded_plan["plan"]
+
+    # ==================================================================
     # REPORT
     # ==================================================================
 
@@ -1664,6 +1682,10 @@ async def _run_strategy_impl(
         decisions=decisions,
         plan=plan,
     )
+
+    if guarded_plan is not None:
+
+        _print_guarded_summary(guarded_plan)
 
     result = {
         "status": "ok",
@@ -1679,12 +1701,99 @@ async def _run_strategy_impl(
         "plan": plan,
     }
 
+    if guarded_plan is not None:
+
+        result["guarded_plan"] = guarded_plan
+
     if advisory_band:
 
         result["advisory"] = advisory_outcomes
         result["advisory_warnings"] = advisory_warnings
 
     return result
+
+
+def _run_guarded_step(
+    decisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Size and guardian-check the decisions (M5) against the broker
+    snapshot (M6). Proposes only. If the broker cannot be read safely
+    nothing is proposed: fail closed.
+    """
+
+    from trading_system.crew import guarded_plan as gp
+    from trading_system.servers.tools import broker
+
+    try:
+
+        snapshot = broker.get_portfolio_snapshot(
+            sector_map=gp.load_sector_map()
+        )
+
+    except Exception as exc:
+
+        empty = gp.build_guarded_plan(decisions, {})
+        empty["proposals"] = []
+        empty["approved"] = []
+        empty["blocked"] = []
+        empty["warnings"].append(
+            "Broker snapshot unavailable "
+            f"({type(exc).__name__}); no order proposed."
+        )
+        empty["broker_error"] = type(exc).__name__
+        return empty
+
+    return gp.build_guarded_plan(
+        decisions,
+        snapshot,
+        earnings_dates=gp.load_earnings_dates(),
+    )
+
+
+def _print_guarded_summary(
+    guarded_plan: dict[str, Any],
+) -> None:
+
+    print()
+    print("=" * 90)
+    print("M5/M6 GUARDIAN (proposals only - nothing is sent anywhere)")
+    print("=" * 90)
+
+    for order in guarded_plan["approved"]:
+
+        print(
+            f"APPROVED {order['side'].upper():<4} {order['symbol']:<6} "
+            f"qty={order['qty']} limit={order['limit_price']} "
+            f"stop={order.get('stop_price')}"
+        )
+
+    for item in guarded_plan["blocked"]:
+
+        order = item.get("order") or {}
+        print(
+            f"BLOCKED  {str(order.get('side')).upper():<4} "
+            f"{order.get('symbol')} by {item['rule']}: {item['detail']}"
+        )
+
+    for item in guarded_plan["skipped"]:
+
+        print(
+            f"SKIPPED  {item['symbol']} {item['decision']}: "
+            f"{item['reason']}"
+        )
+
+    for warning in guarded_plan["warnings"]:
+
+        print(f"WARNING: {warning}")
+
+    if not (
+        guarded_plan["approved"]
+        or guarded_plan["blocked"]
+        or guarded_plan["skipped"]
+    ):
+
+        print("No BUY or SELL decision to size.")
 
 
 async def _run_advisory_step(
@@ -1856,6 +1965,16 @@ def _build_m9_payload(
         "actions": result.get("plan"),
         "warnings": warnings,
     }
+
+    if result.get("guarded_plan") is not None:
+
+        guarded_plan = result["guarded_plan"]
+        payload["risk_results"] = {
+            "approved": guarded_plan.get("approved"),
+            "blocked": guarded_plan.get("blocked"),
+            "skipped": guarded_plan.get("skipped"),
+            "warnings": guarded_plan.get("warnings"),
+        }
 
     if result.get("advisory") is not None:
 
@@ -2063,6 +2182,7 @@ async def run_strategy(
     lookback_days: int,
     timeframe: str,
     advisory_band: str | None = None,
+    guarded: bool = False,
 ) -> dict[str, Any]:
     """
     Public entry point: run the strategy, then record M9 artifacts.
@@ -2083,6 +2203,10 @@ async def run_strategy(
             if advisory_band
             else {}
         )
+
+        if guarded:
+
+            impl_extra["guarded"] = True
 
         result = await _run_strategy_impl(
             symbols=symbols,
@@ -2206,6 +2330,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--guarded",
+        action="store_true",
+        help=(
+            "Use the M5 guardian and M6 broker snapshot for sizing "
+            "(proposals only; no order is placed). Off by default."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -2225,6 +2358,10 @@ async def async_main() -> int:
             if args.advisory
             else {}
         )
+
+        if args.guarded:
+
+            run_extra["guarded"] = True
 
         result = await run_strategy(
             symbols=args.symbols,
