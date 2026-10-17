@@ -35,3 +35,21 @@ Status key: DECIDED = implemented and tested. OPEN = needs a team decision.
 12. **OPEN: news contract alignment (M4 owner).** Spec 7.1 expects a server-side `news_scores` store, 3-day decay, event flags, a requests-left counter and a daily disk cache. The current `news.py` has different tool signatures and an in-process cache only.
 
 13. **OPEN: starter sizing (M5/M6 owner).** `make_plan` buys again for an already-held symbol, does not bound the number of BUYs against capital, does not enforce the cash reserve, and gives SELL rows no quantity because holdings carry symbols only.
+
+## M5/M6 integration decisions (added 17 Oct 2026)
+
+Ashmita's M5 (`risk.py`) and M6 (`broker.py`) are the base; the fixes and additions were made by the integration owner and tested against `tests/test_m5_m6_stage1_contract.py`, `test_m6_stage2_alpaca_read.py` and `test_m5_stage3_guardian_rules.py`.
+
+### Decided
+
+14. **Position cap is 12% of equity** (architecture section 9). This settles open item 11.
+15. **Earnings blackout and cooldown count calendar days in v1.** The architecture says trading days; refining this needs a decision and a test change.
+16. **Unknown sector:** a buy with no known sector is counted in a shared UNKNOWN bucket and a warning names the symbol.
+17. **Missing data warns, it does not block:** a missing `day_start_equity` gives one `daily_loss unchecked` warning; missing `earnings_dates` gives one `earnings_blackout unchecked` warning. Unreadable data blocks everything (`bad_snapshot`).
+18. **Long-only is enforced on the snapshot:** a short position makes every order `bad_snapshot`.
+19. **M6 is dry-run only.** `BROKER_MODE` is `offline` (default) or `alpaca_paper` (read-only GETs, paper host only). `place_order(dry_run=False)` is rejected and no code path can send an order.
+
+### Still open
+
+13. Starter sizing in `make_plan` is replaced only when the orchestrator calls M5/M6 (not done yet).
+20. **OPEN: earnings dates, sector map and cooldown days have no source yet** (M3, `universe.yaml` and `profiles.yaml` are empty).
