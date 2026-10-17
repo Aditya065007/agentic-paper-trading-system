@@ -1,0 +1,23 @@
+# Starter sector map for the M5 sector-cap rule (30% per sector). Edit freely: one line per ticker.
+# A ticker that is not listed here is counted in a shared UNKNOWN bucket and the guardian warns.
+sectors:
+  AAPL: Technology
+  MSFT: Technology
+  NVDA: Technology
+  AMD: Technology
+  GOOGL: Communication
+  META: Communication
+  AMZN: Consumer Discretionary
+  TSLA: Consumer Discretionary
+  JPM: Financials
+  BAC: Financials
+  V: Financials
+  XOM: Energy
+  CVX: Energy
+  JNJ: Health Care
+  UNH: Health Care
+  KO: Consumer Staples
+  PG: Consumer Staples
+  WMT: Consumer Staples
+  CAT: Industrials
+  SPY: Index
