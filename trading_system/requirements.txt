@@ -5,3 +5,6 @@ pydantic
 crewai
 crewai-tools
 streamlit
+python-dotenv
+pyyaml
+litellm
