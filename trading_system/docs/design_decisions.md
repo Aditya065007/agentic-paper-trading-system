@@ -53,3 +53,23 @@ Ashmita's M5 (`risk.py`) and M6 (`broker.py`) are the base; the fixes and additi
 
 13. Starter sizing in `make_plan` is replaced only when the orchestrator calls M5/M6 (not done yet).
 20. **OPEN: earnings dates, sector map and cooldown days have no source yet** (M3, `universe.yaml` and `profiles.yaml` are empty).
+
+## Orchestrator wiring and run_cycle (added 18 Oct 2026)
+
+### Decided
+
+21. **M5/M6 are opt-in in the orchestrator.** `--guarded` on the CLI (or `guarded=True` in `run_strategy`) sizes with `size_position`, checks with `check_rules`, and replaces the starter plan in the report and M9 `actions`. Without the flag the run is exactly as before. This closes open item 13 for the guarded path; the starter `make_plan` stays as the default.
+22. **Decision rows carry `atr`** (from M2-B `score["atr"]`). A BUY without ATR is skipped with a reason, never sized by guess.
+23. **Buys are fitted to the position cap at the limit price.** The guardian checks the limit price (last price plus 0.2%), so a buy sized to the cap at the last price would be blocked. `guarded_plan` reduces the quantity so it fits at the limit price. `risk.py` is unchanged.
+24. **SELL exits the whole position** held according to the broker snapshot. A SELL for something the broker does not show is skipped.
+25. **Fail closed.** If the broker snapshot cannot be read, nothing is proposed and a warning says why.
+26. **Approval boundary in `run_cycle(config)`.** Default `approval=None`: proposals are returned (`status: awaiting_approval`) and nothing is placed. `approval="all"` or a list of symbols places only guardian-approved orders for those symbols, dry-run only. A repeat of the same order on the same day is rejected as a duplicate.
+27. **Temporary env overrides** (`config["env"]`, allow-list: Alpaca keys, Groq key, `BROKER_MODE`) exist so a UI can pass keys for one cycle. They are restored afterwards and never returned, logged or written to a report.
+28. **Sector map in `config/universe.yaml`; earnings dates from optional `fixtures/earnings.json`.** Both are starter data owned by the team. Missing earnings dates give the guardian's `earnings_blackout unchecked` warning.
+
+### Still open
+
+- M3 (market regime, live earnings calendar) is not built; cooldown has no source of recent exits.
+- Dry-run orders live in memory and reset per process.
+- Regime-blended weights (item 10) and the Reflection agent are untouched.
+- Live Alpaca read (`BROKER_MODE=alpaca_paper`) is not verified here: no keys in this environment.
