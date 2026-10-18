@@ -3,26 +3,84 @@
 import math
 from collections.abc import Mapping
 from numbers import Real
+from pathlib import Path
 
 
-WEIGHTS = {
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+WEIGHTS_PATH = CONFIG_DIR / "weights.yaml"
+GROUPS = ("trend", "momentum", "volume", "mean_reversion", "breakout_rs", "news")
+COLUMNS = ("trending", "ranging")
+
+# Built-in copy of config/weights.yaml (architecture 8.3). Used only if the file is missing or
+# invalid; a test keeps the two equal.
+DEFAULT_WEIGHT_CONFIG = {
+    "regime_blend": True,
     "core": {
-        "trend": 0.30,
-        "momentum": 0.20,
-        "volume": 0.15,
-        "mean_reversion": 0.05,
-        "breakout_rs": 0.15,
-        "news": 0.15,
+        "trending": {"trend": 0.30, "momentum": 0.20, "volume": 0.15,
+                     "mean_reversion": 0.05, "breakout_rs": 0.15, "news": 0.15},
+        "ranging": {"trend": 0.15, "momentum": 0.15, "volume": 0.15,
+                    "mean_reversion": 0.30, "breakout_rs": 0.10, "news": 0.15},
     },
     "high_beta": {
-        "trend": 0.25,
-        "momentum": 0.25,
-        "volume": 0.20,
-        "mean_reversion": 0.05,
-        "breakout_rs": 0.15,
-        "news": 0.10,
+        "trending": {"trend": 0.25, "momentum": 0.25, "volume": 0.20,
+                     "mean_reversion": 0.05, "breakout_rs": 0.15, "news": 0.10},
+        "ranging": {"trend": 0.10, "momentum": 0.15, "volume": 0.15,
+                    "mean_reversion": 0.35, "breakout_rs": 0.15, "news": 0.10},
     },
 }
+
+
+def _validate_weight_config(raw) -> dict:
+    """Return a clean copy of the weights mapping or raise ValueError with a short reason."""
+    if not isinstance(raw, Mapping):
+        raise ValueError("weights file is not a mapping")
+    blend = raw.get("regime_blend", True)
+    if not isinstance(blend, bool):
+        raise ValueError("regime_blend must be true or false")
+    clean = {"regime_blend": blend}
+    for sleeve in ("core", "high_beta"):
+        block = raw.get(sleeve)
+        if not isinstance(block, Mapping):
+            raise ValueError(f"missing sleeve '{sleeve}'")
+        clean[sleeve] = {}
+        for column in COLUMNS:
+            weights = block.get(column)
+            if not isinstance(weights, Mapping) or set(weights) != set(GROUPS):
+                raise ValueError(f"{sleeve}.{column} must list exactly {', '.join(GROUPS)}")
+            if not all(_finite(value) and value >= 0 for value in weights.values()):
+                raise ValueError(f"{sleeve}.{column} has a negative or non-numeric weight")
+            if abs(sum(weights.values()) - 1.0) > 1e-6:
+                raise ValueError(f"{sleeve}.{column} sums to {sum(weights.values()):.4f}, not 1.00")
+            clean[sleeve][column] = {group: float(weights[group]) for group in GROUPS}
+    return clean
+
+
+def load_weight_config(path=None) -> tuple[dict, str | None]:
+    """Read config/weights.yaml. Returns (config, warning); warning is None when the file was used."""
+    source = Path(path) if path is not None else WEIGHTS_PATH
+    try:
+        import yaml
+        with open(source, "r", encoding="utf-8") as stream:
+            return _validate_weight_config(yaml.safe_load(stream)), None
+    except Exception as exc:  # any setup mistake must fall back, never break scoring
+        return DEFAULT_WEIGHT_CONFIG, (
+            f"weights.yaml unusable ({type(exc).__name__}: {exc}); built-in default weights were used.")
+
+
+def blended_weights(sleeve: str, adx, config=None) -> dict:
+    """Weights = t x trending + (1 - t) x ranging, t = clip((ADX - 20) / 5, 0, 1).
+
+    Unknown ADX (None/NaN) or regime_blend false -> the trending column."""
+    config = config or WEIGHT_CONFIG
+    trending = config[sleeve]["trending"]
+    if not config.get("regime_blend", True):
+        return dict(trending)
+    _, t = classify_regime(adx)
+    if t is None:
+        return dict(trending)
+    ranging = config[sleeve]["ranging"]
+    return {group: t * trending[group] + (1.0 - t) * ranging[group] for group in GROUPS}
+
 
 GROUP_INDICATORS = {
     "trend": ("ema_spread", "adx_direction", "supertrend"),
@@ -91,6 +149,11 @@ def classify_regime(adx) -> tuple[str | None, float | None]:
     if adx >= 25:
         return "trending", strength
     return "blend", strength
+
+
+WEIGHT_CONFIG, WEIGHT_CONFIG_WARNING = load_weight_config()
+# Trending column per sleeve: the weights used when ADX is >= 25 (and the pre-G2 behaviour).
+WEIGHTS = {sleeve: WEIGHT_CONFIG[sleeve]["trending"] for sleeve in ("core", "high_beta")}
 
 
 def classify_triage(composite, timeframe: str) -> str:
@@ -266,7 +329,9 @@ def score_indicators(symbol: str, timeframe: str, sleeve: str, sector: str,
     active_indicators.add("news")
     result["missing_indicators"] = sorted(name for name in missing if name in active_indicators)
 
-    weights = WEIGHTS[sleeve]
+    weights = blended_weights(sleeve, _raw_adx(indicators))
+    if WEIGHT_CONFIG_WARNING:
+        result["warnings"].append(WEIGHT_CONFIG_WARNING)
     missing_weight = sum(
         weight for group, weight in weights.items()
         if not _finite(result["sub_scores"][group])
