@@ -173,6 +173,7 @@ async def run_cycle(config: dict) -> dict:
         "timeframe": result.get("timeframe"),
         "symbols": result.get("symbols"),
         "decisions": result.get("decisions"),
+        "regime": result.get("regime"),
         "plan": result.get("plan"),
         "proposals": plan.get("proposals", []),
         "approved": approved_orders,

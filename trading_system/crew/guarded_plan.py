@@ -81,8 +81,18 @@ def load_earnings_dates(path=None) -> dict:
     return {}
 
 
+def regime_block_reason(regime) -> str:
+    """Why new buys are paused by the market regime, or None. Needs risk_mode "risk_off" AND the
+    block_new_buys_in_risk_off switch (config/regime.yaml) to be exactly True. Sells are never paused."""
+    if isinstance(regime, dict) and regime.get("risk_mode") == "risk_off" \
+            and regime.get("block_new_buys_in_risk_off") is True:
+        return ("Market regime is risk_off (SPY below its trend and stressed or weak breadth); "
+                "new buys are paused by config/regime.yaml.")
+    return None
+
+
 def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
-                       earnings_dates: dict = None, today: str = None) -> dict:
+                       earnings_dates: dict = None, today: str = None, regime: dict = None) -> dict:
     """Size every BUY/SELL decision, then run all proposals through the guardian.
 
     Returns {
@@ -182,18 +192,32 @@ def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
     guard_snapshot["today"] = today or datetime.now(timezone.utc).date().isoformat()
     if earnings_dates:
         guard_snapshot["earnings_dates"] = dict(earnings_dates)
-    verdict = risk.check_rules(proposals, guard_snapshot, rules)
+    pause_reason = regime_block_reason(regime)
+    regime_blocked, guard_orders = [], proposals
+    if pause_reason:
+        guard_orders = []
+        for order in proposals:
+            if order["side"] == "buy":
+                regime_blocked.append({"order": order, "rule": "regime_risk_off", "detail": pause_reason})
+            else:
+                guard_orders.append(order)
+    elif isinstance(regime, dict) and regime.get("risk_mode") == "risk_off" \
+            and any(order["side"] == "buy" for order in proposals):
+        warnings.append("Market regime is risk_off but new buys are not paused "
+                        "(block_new_buys_in_risk_off is false in config/regime.yaml).")
+    verdict = risk.check_rules(guard_orders, guard_snapshot, rules)
     warnings.extend(verdict.get("warnings", []))
+    all_blocked = list(verdict.get("blocked", [])) + regime_blocked
 
     row_of = {id(order): plan_row for order, plan_row in proposal_rows}
-    for item in verdict.get("blocked", []):  # a blocked order is not a planned order
+    for item in all_blocked:  # a blocked order is not a planned order
         plan_row = row_of.get(id(item.get("order")))
         if plan_row is not None:
             plan_row["planned_quantity"], plan_row["planned_value"] = 0, 0.0
             plan_row["blocked_by"] = item["rule"]
 
     return {"proposals": proposals, "approved": list(verdict.get("approved", [])),
-            "blocked": verdict.get("blocked", []), "skipped": skipped, "warnings": warnings,
+            "blocked": all_blocked, "skipped": skipped, "warnings": warnings,
             "plan": plan,
             "snapshot_summary": {"equity": guard_snapshot.get("equity"), "cash": guard_snapshot.get("cash"),
                                  "positions": sorted(positions)}}

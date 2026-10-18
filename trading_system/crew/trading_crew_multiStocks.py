@@ -1345,6 +1345,40 @@ async def fetch_news_scores(
 # ============================================================================
 
 
+async def fetch_market_regime(
+    mcp: Any,
+    symbols: list[str],
+    timeframe: str,
+    available_tools: list[str],
+) -> tuple[dict | None, list[str]]:
+    """
+    Fetch the M3 market backdrop (SPY trend, volatility, breadth) from
+    the bars M1 just cached.
+
+    Returns (regime dict or None, warnings). The regime is optional:
+    any failure returns (None, [warning]) and the run continues. It
+    never raises and nothing here is a trading decision.
+    """
+
+    if "get_market_regime" not in set(available_tools):
+        return None, ["Market regime tool unavailable: get_market_regime"]
+
+    try:
+        regime = await mcp.call_tool(
+            "get_market_regime",
+            {"symbols": list(symbols), "timeframe": timeframe},
+        )
+    except Exception as exc:
+        return None, [
+            f"Market regime failed ({type(exc).__name__}); regime not used."
+        ]
+
+    if not isinstance(regime, dict) or "risk_mode" not in regime:
+        return None, ["Market regime returned an unexpected result; regime not used."]
+
+    return regime, [f"M3 {w}" for w in regime.get("warnings") or []]
+
+
 async def _run_strategy_impl(
     symbols: list[str],
     lookback_days: int,
@@ -1523,6 +1557,30 @@ async def _run_strategy_impl(
         )
 
         # ==============================================================
+        # M3 — MARKET REGIME (optional; reported, and used only if
+        # config/regime.yaml says to pause new buys while risk_off)
+        # ==============================================================
+
+        regime, regime_warnings = await fetch_market_regime(
+            mcp=mcp,
+            symbols=symbols,
+            timeframe=timeframe,
+            available_tools=available_tools,
+        )
+
+        print()
+        if regime is not None:
+            print(
+                "M3 market regime: "
+                f"{regime.get('risk_mode')} "
+                f"(SPY trend {regime.get('spy_trend')}, "
+                f"vol {regime.get('spy_vol')}, "
+                f"breadth {regime.get('breadth_pct')}%)"
+            )
+        for warning in regime_warnings:
+            print(f"M3 warning: {warning}")
+
+        # ==============================================================
         # M4 — NEWS SCORES (optional; failure never stops the run)
         # ==============================================================
 
@@ -1672,7 +1730,7 @@ async def _run_strategy_impl(
 
     if guarded:
 
-        guarded_plan = _run_guarded_step(decisions)
+        guarded_plan = _run_guarded_step(decisions, regime)
 
         # The guarded sizing replaces the starter sizing in the report
         # and in M9 "actions"; the starter plan stays the default.
@@ -1707,6 +1765,8 @@ async def _run_strategy_impl(
         "m2_report": m2_report,
         "news_scores": news_scores,
         "news_warnings": news_warnings,
+        "regime": regime,
+        "regime_warnings": regime_warnings,
         "decisions": decisions,
         "plan": plan,
     }
@@ -1725,6 +1785,7 @@ async def _run_strategy_impl(
 
 def _run_guarded_step(
     decisions: list[dict[str, Any]],
+    regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Size and guardian-check the decisions (M5) against the broker
@@ -1769,6 +1830,7 @@ def _run_guarded_step(
         decisions,
         snapshot,
         earnings_dates=gp.load_earnings_dates(),
+        regime=regime,
     )
 
     guarded["broker_mode"] = broker_mode
@@ -1972,6 +2034,8 @@ def _build_m9_payload(
     warnings = list(
         result.get("news_warnings") or []
     ) + list(
+        result.get("regime_warnings") or []
+    ) + list(
         result.get("advisory_warnings") or []
     )
 
@@ -2004,6 +2068,12 @@ def _build_m9_payload(
         "actions": result.get("plan"),
         "warnings": warnings,
     }
+
+    if isinstance(result.get("regime"), dict):
+        payload["market_regime"] = {
+            key: result["regime"].get(key)
+            for key in ("risk_mode", "spy_trend", "spy_vol", "breadth_pct", "timeframe")
+        }
 
     if result.get("guarded_plan") is not None:
 

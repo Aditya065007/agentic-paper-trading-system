@@ -40,11 +40,14 @@ from trading_system.servers.tools.scoring import score_indicators
 from trading_system.servers.tools.news import register_news_tools
 from trading_system.servers.tools.risk import register_risk_tools
 from trading_system.servers.tools.broker import register_broker_tools
+from trading_system.servers.tools.regime import (compute_market_regime, load_regime_settings,
+                                                    register_regime_tools)
 
 mcp = FastMCP("TechnicalIndicators")
 register_news_tools(mcp)
 register_risk_tools(mcp)
 register_broker_tools(mcp)
+register_regime_tools(mcp)
 
 ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
@@ -839,6 +842,50 @@ def calculate_m2_batch(
         "missing": missing,
     }
 
+
+
+@mcp.tool()
+def get_market_regime(symbols: list[str] | None = None, timeframe: str = "1Day") -> dict:
+    """
+    M3 market backdrop from the bars already cached by fetch_ohlcv_batch:
+    SPY trend (last close vs EMA), SPY volatility and breadth (share of
+    `symbols` above their EMA) -> risk_mode risk_on | neutral | risk_off.
+
+    No data is fetched here. Missing SPY or watch-list bars give
+    risk_mode "neutral" with warnings, never risk_on. Limits come from
+    config/regime.yaml.
+    """
+
+    if timeframe not in {"1Day", "1Hour"}:
+        raise ValueError("timeframe must be '1Day' or '1Hour'.")
+
+    def _closes(symbol):
+        entry = _cache.get((symbol, timeframe))
+        if not entry:
+            return None
+        try:
+            return [float(v) for v in entry["df"]["close"].tolist()]
+        except Exception:
+            return None
+
+    watchlist = {}
+    for raw_symbol in symbols or []:
+        symbol = str(raw_symbol).strip().upper()
+        if symbol and symbol != "SPY":
+            closes = _closes(symbol)
+            if closes is not None:
+                watchlist[symbol] = closes
+
+    settings, settings_warning = load_regime_settings()
+    result = compute_market_regime(
+        _closes("SPY"), watchlist, settings, timeframe
+    )
+    if settings_warning:
+        result["warnings"].append(settings_warning)
+    result["block_new_buys_in_risk_off"] = bool(
+        settings.get("block_new_buys_in_risk_off")
+    )
+    return result
 
 
 # ============================================================
