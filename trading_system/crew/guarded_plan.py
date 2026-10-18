@@ -45,6 +45,28 @@ def load_sector_map(path=None) -> dict:
     return {}
 
 
+_SLEEVES = ("core", "high_beta")
+
+
+def load_sleeve_map(path=None) -> dict:
+    """Optional config/universe.yaml `sleeves: {NVDA: high_beta, ...}`.
+
+    Only "core" and "high_beta" are accepted; anything else is dropped, so a typo leaves
+    that ticker on the default "core" sleeve. Missing or bad file -> {}."""
+    try:
+        import yaml
+        with open(Path(path) if path is not None else _PACKAGE_DIR / "config" / "universe.yaml",
+                  "r", encoding="utf-8") as stream:
+            data = yaml.safe_load(stream) or {}
+        sleeves = data.get("sleeves") if isinstance(data, dict) else None
+        if isinstance(sleeves, dict):
+            return {str(k).strip().upper(): str(v).strip().lower() for k, v in sleeves.items()
+                    if str(v).strip().lower() in _SLEEVES}
+    except Exception:
+        pass
+    return {}
+
+
 def load_earnings_dates(path=None) -> dict:
     """Optional fixtures/earnings.json {"AAPL": "2026-10-29"}. Missing or bad file -> {} (guardian warns)."""
     import json

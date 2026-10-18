@@ -733,6 +733,8 @@ def calculate_m2_batch(
     sleeve: str = "core",
     sector: str | None = None,
     news_scores: dict[str, float | None] | None = None,
+    sleeves: dict[str, str] | None = None,
+    sectors: dict[str, str] | None = None,
 ) -> dict:
     """
     Run M2-A indicators and M2-B deterministic scoring for all
@@ -742,6 +744,12 @@ def calculate_m2_batch(
     the orchestrator (M4). A missing or invalid score is excluded by the
     scorer and the remaining weights are renormalized. No news is
     fetched here.
+
+    sleeves / sectors are optional {SYMBOL: value} maps. A symbol found
+    in `sleeves` is scored with that sleeve ("core" or "high_beta"); every
+    other symbol uses the `sleeve` argument (default "core"). `sectors`
+    works the same way for the sector label. An unknown sleeve value is
+    not guessed: the scorer rejects it and the symbol gets a fail-safe HOLD.
 
     M1 fetch_ohlcv_batch must be called first in the same MCP
     session/process. SPY must also be present in that cache so
@@ -774,6 +782,16 @@ def calculate_m2_batch(
         for raw_symbol, value in news_scores.items():
             supplied_news[str(raw_symbol).strip().upper()] = value
 
+    def _per_symbol(mapping):
+        out = {}
+        if isinstance(mapping, dict):
+            for raw_symbol, value in mapping.items():
+                out[str(raw_symbol).strip().upper()] = value
+        return out
+
+    sleeve_by_symbol = _per_symbol(sleeves)
+    sector_by_symbol = _per_symbol(sectors)
+
     results = []
     missing = []
 
@@ -793,8 +811,8 @@ def calculate_m2_batch(
             score_result = score_indicators(
                 symbol=symbol,
                 timeframe=timeframe,
-                sleeve=sleeve,
-                sector=sector,
+                sleeve=sleeve_by_symbol.get(symbol, sleeve),
+                sector=sector_by_symbol.get(symbol, sector),
                 indicator_result=indicator_dict,
                 news_score=supplied_news.get(symbol),
             )

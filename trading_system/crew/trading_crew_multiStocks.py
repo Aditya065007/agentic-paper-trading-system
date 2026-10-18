@@ -1546,12 +1546,22 @@ async def _run_strategy_impl(
         # M2 — INDICATORS + DETERMINISTIC SCORING
         # ==============================================================
 
+        # Sleeve (core / high_beta) and sector per symbol come from
+        # config/universe.yaml. A ticker that is not listed keeps the
+        # default: sleeve "core", no sector.
+        from trading_system.crew import guarded_plan as gp
+
+        sleeve_map = gp.load_sleeve_map()
+        sector_labels = gp.load_sector_map()
+
         m2_args = {
             "symbols": symbols,
             "timeframe": timeframe,
             "sleeve": "core",
             "sector": None,
             "news_scores": news_scores,
+            "sleeves": {s: sleeve_map[s] for s in symbols if s in sleeve_map},
+            "sectors": {s: sector_labels[s] for s in symbols if s in sector_labels},
         }
 
         print()
