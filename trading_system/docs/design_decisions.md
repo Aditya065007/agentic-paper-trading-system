@@ -47,7 +47,7 @@ Ashmita's M5 (`risk.py`) and M6 (`broker.py`) are the base; the fixes and additi
 16. **Unknown sector:** a buy with no known sector is counted in a shared UNKNOWN bucket and a warning names the symbol.
 17. **Missing data warns, it does not block:** a missing `day_start_equity` gives one `daily_loss unchecked` warning; missing `earnings_dates` gives one `earnings_blackout unchecked` warning. Unreadable data blocks everything (`bad_snapshot`).
 18. **Long-only is enforced on the snapshot:** a short position makes every order `bad_snapshot`.
-19. **M6 is dry-run only.** `BROKER_MODE` is `offline` (default) or `alpaca_paper` (read-only GETs, paper host only). `place_order(dry_run=False)` is rejected and no code path can send an order.
+19. **M6 is dry-run only.** `BROKER_MODE` is `offline` (default) or `alpaca_paper` (read-only GETs, paper host only). `place_order(dry_run=False)` is rejected and no code path can send an order. **Amended by decision 29:** the M6 broker and its MCP tools stay dry-run only; live paper submission is a separate, gated module.
 
 ### Still open
 
@@ -73,3 +73,14 @@ Ashmita's M5 (`risk.py`) and M6 (`broker.py`) are the base; the fixes and additi
 - Dry-run orders live in memory and reset per process.
 - Regime-blended weights (item 10) and the Reflection agent are untouched.
 - Live Alpaca read (`BROKER_MODE=alpaca_paper`) is not verified here: no keys in this environment.
+
+## Live paper orders (added 18 Oct 2026)
+
+29. **Live submission to the Alpaca PAPER account exists, behind gates.** It lives in `servers/tools/live_orders.py`, which is not an MCP tool and is never imported by the MCP server, so no agent can call it. `broker.place_order(dry_run=False)` is still rejected. Nothing is sent unless all of these hold: `ALPACA_ORDERS_ENABLED=true` in the real environment (default off; `run_cycle`'s `env` override cannot set it); `BROKER_MODE=alpaca_paper`; the paper host and keys are present; the caller passed `submit="alpaca_paper"` and an explicit, non-empty list of approved symbols (`"all"` and `None` are refused); and the order is guardian-approved.
+30. **Order shape:** whole-share DAY limit orders only. Pre-flight against the real account: enough buying power for a buy, enough shares held for a sell. At most 10 orders per submission.
+31. **Duplicate protection:** `client_order_id = pt-YYYYMMDD-SYMBOL-side` (one live order per symbol, side and UTC day), looked up at Alpaca before sending, plus a refusal when any open order for that symbol and side exists. A cancelled order still counts as "already submitted today"; resubmitting the same symbol and side on the same day needs a deliberate change.
+32. **Fail closed, never resend blindly.** If Alpaca cannot be asked before sending, nothing is sent. If a send fails in flight, the order is looked up by `client_order_id`: found means reported as submitted, absent means reported as not sent, and unknown means `unconfirmed` with a note to check the Alpaca dashboard.
+33. **No protective stop at the broker.** `stop_price` stays advisory and is not sent. Bracket or stop orders are a later decision; a warning says so in the result.
+34. **Audit trail.** Each live order writes one M9 journal entry with the Alpaca order id and status. Keys are never logged, returned or journaled (redacted from error text).
+35. **Where to set the switch.** Set `ALPACA_ORDERS_ENABLED=true` on the command line for one run, not in `.env`, because `.env` is loaded into the environment and would leave live paper orders on for every run.
+36. **Unverified against live Alpaca:** the "order not found" reply to the by-client-order-id lookup is treated as HTTP 404 (anything unclear fails closed). First live attempt should be one small order, checked in the Alpaca dashboard.
