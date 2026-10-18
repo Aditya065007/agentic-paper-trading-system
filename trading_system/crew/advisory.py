@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from trading_system.servers.tools import scoring
+from . import journal
 from .agents import (
 	create_agents,
 	format_agent_prompt,
@@ -289,7 +290,7 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 						  "sub_scores": row.get("sub_scores") or {}},
 			"regime": row.get("regime"),
 			"headlines": headlines,
-			"recent_lessons": [],
+			"recent_lessons": journal.load_recent_lessons(loaded["debate"].get("max_recent_lessons", 3)),
 		}
 		printer(f"\n  {symbol} | composite={composite:.4f} | triage={row.get('triage')} "
 				f"| decision={row.get('decision')}")

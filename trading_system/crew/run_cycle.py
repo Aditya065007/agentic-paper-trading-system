@@ -165,6 +165,13 @@ async def run_cycle(config: dict) -> dict:
         status = "ok"
 
     journal_paths = _journal_live_orders(result, placed) if submission == "alpaca_paper" else []
+    if placed:
+        try:
+            from trading_system.crew import journal
+            journal.append_order_results(result.get("run_id"), result.get("timeframe"), placed,
+                                         live=submission == "alpaca_paper")
+        except Exception:
+            pass  # the audit trail must never change the cycle
 
     return {
         "status": status,

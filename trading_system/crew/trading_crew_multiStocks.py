@@ -2304,6 +2304,36 @@ def _write_advisory_journals(
     return paths
 
 
+def _write_g6_artifacts(
+    result: dict[str, Any],
+    run_id: str,
+    timestamp: str,
+) -> tuple[list[str], dict[str, str]]:
+    """
+    Per-agent timestamped md files plus decisions.jsonl and
+    trade_journal.md. A writer failure is printed and never changes
+    the run (both writers also catch their own errors).
+    """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    try:
+        from trading_system.crew import agent_files, journal
+
+        return (
+            agent_files.write_agent_files(result, run_id, timestamp),
+            journal.record_run(result, run_id, timestamp),
+        )
+
+    except Exception as exc:
+        print(
+            f"M9 journal warning: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return [], {}
+
+
 async def run_strategy(
     symbols: list[str],
     lookback_days: int,
@@ -2374,6 +2404,11 @@ async def run_strategy(
     result["degraded"] = degraded
     result["report_path"] = report_path
     result["journal_path"] = journal_path
+
+    (
+        result["agent_report_paths"],
+        result["journal_files"],
+    ) = _write_g6_artifacts(result, run_id, started_at)
 
     if result.get("advisory"):
 
