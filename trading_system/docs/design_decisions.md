@@ -84,3 +84,9 @@ Ashmita's M5 (`risk.py`) and M6 (`broker.py`) are the base; the fixes and additi
 34. **Audit trail.** Each live order writes one M9 journal entry with the Alpaca order id and status. Keys are never logged, returned or journaled (redacted from error text).
 35. **Where to set the switch.** Set `ALPACA_ORDERS_ENABLED=true` on the command line for one run, not in `.env`, because `.env` is loaded into the environment and would leave live paper orders on for every run.
 36. **Unverified against live Alpaca:** the "order not found" reply to the by-client-order-id lookup is treated as HTTP 404 (anything unclear fails closed). First live attempt should be one small order, checked in the Alpaca dashboard.
+
+## Sleeves and per-symbol labels (added 18 Oct 2026)
+
+37. **Sleeve and sector are per symbol, from `config/universe.yaml`.** `sleeves: {NVDA: high_beta, ...}` picks the scoring weights per ticker; a ticker that is not listed is scored as `core` (as before). `calculate_m2_batch` takes optional `sleeves` and `sectors` maps and falls back to its `sleeve`/`sector` arguments, so existing callers are unchanged. Before this, every run scored every stock as `core`, so the `high_beta` weights (design decision D10) were never used.
+38. **A wrong sleeve name is never guessed.** The loader drops anything but `core` or `high_beta`, so a typo leaves that ticker on `core`. If an unknown value ever reaches the scorer directly, it returns no score and the symbol gets the fail-safe HOLD.
+39. **The starter assignment is a judgement, not data.** NVDA, AMD, TSLA, META, AMZN and BAC are tagged `high_beta` (6 of 19 stocks, about 32%, meeting the 30% target; SPY is not counted). The team should confirm or change it. A test fails if the shipped file drops below 30%.
