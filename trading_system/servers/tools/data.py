@@ -169,17 +169,17 @@ def cache_key(symbols, timeframe, lookback_days, adjustment, feed):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
 
 
-def _cache_file(cache_dir, key):
-    return Path(cache_dir) / f"bars_{key}.json"
+def _cache_file(cache_dir, key, prefix="bars"):
+    return Path(cache_dir) / f"{prefix}_{key}.json"
 
 
-def read_cache(cache_dir, key, ttl_minutes, now=None):
+def read_cache(cache_dir, key, ttl_minutes, now=None, prefix="bars"):
     """Return the cached raw rows if they are younger than the TTL, else None. Never raises."""
     try:
         if not ttl_minutes or ttl_minutes <= 0:
             return None
         now = now or datetime.now(timezone.utc)
-        payload = json.loads(_cache_file(cache_dir, key).read_text(encoding="utf-8"))
+        payload = json.loads(_cache_file(cache_dir, key, prefix).read_text(encoding="utf-8"))
         fetched_at = datetime.fromisoformat(payload["fetched_at"])
         age = now - fetched_at
         if age < timedelta(0) or age > timedelta(minutes=float(ttl_minutes)):
@@ -190,7 +190,7 @@ def read_cache(cache_dir, key, ttl_minutes, now=None):
         return None
 
 
-def write_cache(cache_dir, key, rows, now=None) -> bool:
+def write_cache(cache_dir, key, rows, now=None, prefix="bars") -> bool:
     """Write the raw rows atomically. Returns False (and does nothing else) if the write fails."""
     try:
         now = now or datetime.now(timezone.utc)
@@ -201,7 +201,7 @@ def write_cache(cache_dir, key, rows, now=None) -> bool:
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
                 json.dump(payload, stream)
-            os.replace(temp_name, _cache_file(directory, key))
+            os.replace(temp_name, _cache_file(directory, key, prefix))
         except Exception:
             try:
                 os.unlink(temp_name)

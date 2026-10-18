@@ -37,7 +37,7 @@ from mcp.server.fastmcp import FastMCP
 
 from trading_system.servers.tools.indicators import compute_indicators
 from trading_system.servers.tools.scoring import score_indicators
-from trading_system.servers.tools.news import register_news_tools
+from trading_system.servers.tools.news import get_news_by_symbol, register_news_tools
 from trading_system.servers.tools.risk import register_risk_tools
 from trading_system.servers.tools.broker import register_broker_tools
 from trading_system.servers.tools import data as m1data
@@ -46,6 +46,7 @@ from trading_system.servers.tools.regime import (compute_market_regime, load_reg
 
 mcp = FastMCP("TechnicalIndicators")
 register_news_tools(mcp)
+mcp.tool()(get_news_by_symbol)   # per-symbol news: cached, with a daily request budget
 register_risk_tools(mcp)
 register_broker_tools(mcp)
 register_regime_tools(mcp)

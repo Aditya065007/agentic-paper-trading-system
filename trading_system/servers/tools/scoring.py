@@ -89,11 +89,55 @@ GROUP_INDICATORS = {
     "mean_reversion": ("bollinger_percent_b", "zscore20"),
 }
 
-TRIAGE_THRESHOLDS = {
+PROFILES_PATH = CONFIG_DIR / "profiles.yaml"
+# Built-in copy of the wired part of config/profiles.yaml (architecture 5.5). Used only if the file
+# is missing or invalid; a test keeps the two equal.
+DEFAULT_TRIAGE_THRESHOLDS = {
     "1Day": {"buy": 0.40, "sell": -0.40},
     "1Hour": {"buy": 0.45, "sell": -0.45},
 }
-BORDERLINE_BUFFER = 0.10
+DEFAULT_BORDERLINE_BUFFER = 0.10
+
+
+def load_profiles(path=None) -> tuple[dict, float, str | None]:
+    """Read config/profiles.yaml. Returns (thresholds, borderline_buffer, warning).
+
+    Any problem falls back to the built-in defaults with a warning, so a typo can never silently move
+    the buy/sell lines."""
+    source = Path(path) if path is not None else PROFILES_PATH
+    try:
+        import yaml
+        with open(source, "r", encoding="utf-8") as stream:
+            data = yaml.safe_load(stream)
+        if not isinstance(data, Mapping):
+            raise ValueError("file is empty or not a mapping")
+        buffer = data.get("borderline_buffer")
+        if isinstance(buffer, bool) or not isinstance(buffer, Real) or not 0 < buffer < 0.5:
+            raise ValueError("borderline_buffer must be a number between 0 and 0.5")
+        thresholds = {}
+        for timeframe in DEFAULT_TRIAGE_THRESHOLDS:
+            block = data.get(timeframe)
+            if not isinstance(block, Mapping):
+                raise ValueError(f"missing profile '{timeframe}'")
+            buy, sell = block.get("buy_threshold"), block.get("sell_threshold")
+            if not all(isinstance(v, Real) and not isinstance(v, bool) and math.isfinite(v)
+                       for v in (buy, sell)):
+                raise ValueError(f"{timeframe}: buy_threshold and sell_threshold must be numbers")
+            if not 0 < buy <= 1 or not -1 <= sell < 0:
+                raise ValueError(f"{timeframe}: need 0 < buy_threshold <= 1 and -1 <= sell_threshold < 0")
+            if buy - buffer <= 0 or sell + buffer >= 0:
+                raise ValueError(f"{timeframe}: borderline_buffer is too wide for the thresholds")
+            thresholds[timeframe] = {"buy": float(buy), "sell": float(sell)}
+        return thresholds, float(buffer), None
+    except Exception as exc:  # any setup mistake must fall back, never break scoring
+        return (
+            {tf: dict(v) for tf, v in DEFAULT_TRIAGE_THRESHOLDS.items()},
+            DEFAULT_BORDERLINE_BUFFER,
+            f"profiles.yaml unusable ({type(exc).__name__}: {exc}); built-in default thresholds were used.",
+        )
+
+
+TRIAGE_THRESHOLDS, BORDERLINE_BUFFER, PROFILES_WARNING = load_profiles()
 VERIFY_WARNINGS = (
     "[VERIFY] Equal-mean aggregation within scoring groups has no approved intra-group weights.",
     "[VERIFY] Borderline covers the 0.10 interval immediately inside each clear threshold; clear thresholds take precedence.",
@@ -330,8 +374,9 @@ def score_indicators(symbol: str, timeframe: str, sleeve: str, sector: str,
     result["missing_indicators"] = sorted(name for name in missing if name in active_indicators)
 
     weights = blended_weights(sleeve, _raw_adx(indicators))
-    if WEIGHT_CONFIG_WARNING:
-        result["warnings"].append(WEIGHT_CONFIG_WARNING)
+    for config_warning in (WEIGHT_CONFIG_WARNING, PROFILES_WARNING):
+        if config_warning:
+            result["warnings"].append(config_warning)
     missing_weight = sum(
         weight for group, weight in weights.items()
         if not _finite(result["sub_scores"][group])

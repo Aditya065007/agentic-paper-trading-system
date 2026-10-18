@@ -19,6 +19,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from trading_system.servers.tools import scoring
 from .agents import (
 	create_agents,
 	format_agent_prompt,
@@ -31,12 +32,9 @@ from .llm import load_llm_config
 # Verified live by the user on 2026-10-14 (CrewAI LLM call OK for both models).
 ADVISORY_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "llm_verified.yaml"
 
-# Same values as TRIAGE_THRESHOLDS in servers/tools/scoring.py (a test keeps them equal).
-TRIAGE_THRESHOLDS = {
-	"1Day": {"buy": 0.40, "sell": -0.40},
-	"1Hour": {"buy": 0.45, "sell": -0.45},
-}
-BAND_BUFFER = 0.10
+# One source of truth: config/profiles.yaml, read by servers/tools/scoring.py.
+TRIAGE_THRESHOLDS = scoring.TRIAGE_THRESHOLDS
+BAND_BUFFER = scoring.BORDERLINE_BUFFER
 # "spec": within 0.10 of a clear threshold on EITHER side (architecture spec 8.4).
 # "borderline": only rows the scorer already labelled borderline (0.10 inside the threshold).
 BAND_MODES = ("spec", "borderline")

@@ -1048,6 +1048,7 @@ def print_report(
     m2_report: dict[str, Any],
     decisions: list[dict[str, Any]],
     plan: list[dict[str, Any]],
+    guarded: bool = False,
 ) -> None:
 
     print()
@@ -1078,11 +1079,11 @@ def print_report(
     )
 
     print(
-        "LLM decision-making: DISABLED"
+        "LLM decision-making: NONE (code decides; the LLM only advises with --advisory)"
     )
 
     print(
-        "Order submission: DISABLED"
+        "Order submission: NONE from this report (orders need run_cycle approval)"
     )
 
     # ------------------------------------------------------------------
@@ -1234,7 +1235,9 @@ def print_report(
     print()
     print("-" * 90)
     print(
-        "STARTER ACTION PLAN"
+        "ACTION PLAN (sized and risk-checked by the guardian; nothing is sent)"
+        if guarded
+        else "STARTER ACTION PLAN (simple sizing, no risk check; use --guarded)"
     )
     print("-" * 90)
 
@@ -1278,8 +1281,15 @@ async def fetch_news_scores(
     This function never raises and never prints credentials.
     """
 
+    # Prefer one request per symbol (cached, budgeted) when the server offers it.
+    fetch_tool = (
+        "get_news_by_symbol"
+        if "get_news_by_symbol" in set(available_tools)
+        else "get_news"
+    )
+
     missing_tools = {
-        "get_news",
+        fetch_tool,
         "score_headlines",
     } - set(available_tools)
 
@@ -1291,7 +1301,7 @@ async def fetch_news_scores(
 
     try:
         news = await mcp.call_tool(
-            "get_news",
+            fetch_tool,
             {"symbols": list(symbols)},
         )
 
@@ -1431,7 +1441,7 @@ async def _run_strategy_impl(
     )
 
     print(
-        "LLM decision-making: DISABLED"
+        "LLM decision-making: NONE (code decides; the LLM only advises with --advisory)"
     )
 
     if advisory_band:
@@ -1756,6 +1766,7 @@ async def _run_strategy_impl(
         m2_report=m2_report,
         decisions=decisions,
         plan=plan,
+        guarded=guarded_plan is not None,
     )
 
     if guarded_plan is not None:
