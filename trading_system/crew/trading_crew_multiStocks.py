@@ -1556,6 +1556,13 @@ async def _run_strategy_impl(
             "M1 fetch completed."
         )
 
+        # Data-layer notes from the M1 server (dropped in-progress bar,
+        # regular-hours filter, cache use). Informational only.
+        for data_note in fetch_report.get("data_notes") or []:
+            print(
+                f"M1 note: {data_note}"
+            )
+
         # ==============================================================
         # M3 — MARKET REGIME (optional; reported, and used only if
         # config/regime.yaml says to pause new buys while risk_off)

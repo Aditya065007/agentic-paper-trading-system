@@ -1,0 +1,19 @@
+# M1 data-layer settings (architecture module M1). Edit freely.
+# A missing or invalid file falls back to these same values with a warning in the fetch result.
+
+# Price adjustment sent to Alpaca. "split" keeps prices comparable across stock splits.
+adjustment: split
+
+# Drop the bar that is still forming (daily bar until 16:00 New York time, hourly bar until the hour ends),
+# so indicators never see a half-finished candle.
+drop_in_progress_bar: true
+
+# Hourly data only: keep bars that overlap the 09:30-16:00 New York session.
+regular_hours_only: true
+
+# Disk cache of the raw Alpaca response (folder data_cache/, git-ignored). A cached answer is reused
+# only while it is younger than the time-to-live below; 0 minutes switches caching off for that timeframe.
+cache_enabled: true
+cache_ttl_minutes:
+  1Day: 15
+  1Hour: 5

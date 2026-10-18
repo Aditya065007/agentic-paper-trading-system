@@ -40,6 +40,7 @@ from trading_system.servers.tools.scoring import score_indicators
 from trading_system.servers.tools.news import register_news_tools
 from trading_system.servers.tools.risk import register_risk_tools
 from trading_system.servers.tools.broker import register_broker_tools
+from trading_system.servers.tools import data as m1data
 from trading_system.servers.tools.regime import (compute_market_regime, load_regime_settings,
                                                     register_regime_tools)
 
@@ -54,6 +55,11 @@ ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
 FEED = "iex"
 
+# M1 settings (config/data.yaml): split adjustment, in-progress bar, regular hours, disk cache.
+DATA_SETTINGS, DATA_SETTINGS_WARNING = m1data.load_data_settings()
+CACHE_DIR = Path(os.environ.get("TRADING_DATA_CACHE_DIR")
+                 or Path(__file__).resolve().parents[1] / "data_cache")
+
 HEADERS = {
     "APCA-API-KEY-ID": ALPACA_API_KEY,
     "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
@@ -65,6 +71,18 @@ _cache: dict[tuple[str, str], dict] = {}
 # The current run's timeframe is used by indicator tools whose MCP contract
 # accepts only a symbol.
 _active_timeframe: str | None = None
+
+# Notes from the most recent fetch (dropped bars, cache use, settings problems), returned to the caller.
+_data_notes: list[str] = []
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _check_timeframe(timeframe):
+    if timeframe not in m1data.TIMEFRAMES:
+        raise ValueError("timeframe must be '1Day' or '1Hour'.")
 
 
 # ============================================================
@@ -87,14 +105,14 @@ def _clean_symbols(symbols) -> list[str]:
     return out
 
 
-def _fetch_bars(
+def _request_bars(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
+    end_dt: datetime,
 ) -> dict:
-    """Fetch paginated Alpaca OHLCV data for many symbols."""
+    """Ask Alpaca for bars (paginated, with retry). Returns the RAW rows {symbol: [bar dicts]}."""
 
-    end_dt = datetime.now(timezone.utc)
     start_dt = end_dt - timedelta(days=lookback_days)
 
     params = {
@@ -104,6 +122,7 @@ def _fetch_bars(
         "end": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "limit": 10_000,
         "feed": FEED,
+        "adjustment": DATA_SETTINGS["adjustment"],
     }
 
     url = f"{ALPACA_DATA_URL}/stocks/bars"
@@ -145,36 +164,41 @@ def _fetch_bars(
 
         params["page_token"] = token
 
-    frames = {}
+    return rows
 
-    for sym, bars in rows.items():
 
-        df = pd.DataFrame(bars)
+def _fetch_bars(
+    symbols: list[str],
+    lookback_days: int,
+    timeframe: str,
+) -> dict:
+    """Return clean OHLCV frames {symbol: DataFrame}. Notes go to _data_notes.
 
-        df["t"] = pd.to_datetime(df["t"])
+    Steps: disk cache (if fresh) or Alpaca -> drop invalid rows -> hourly regular hours only ->
+    drop the bar that is still forming. The cache stores the raw rows, so the last two steps are
+    always applied at the current time."""
 
-        df = (
-            df.set_index("t")
-            .sort_index()
-            .rename(
-                columns={
-                    "o": "open",
-                    "h": "high",
-                    "l": "low",
-                    "c": "close",
-                    "v": "volume",
-                }
-            )[[
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]]
-        )
+    now = _utcnow()
+    _data_notes.clear()
+    if DATA_SETTINGS_WARNING:
+        _data_notes.append(DATA_SETTINGS_WARNING)
 
-        frames[sym] = df
+    key = m1data.cache_key(symbols, timeframe, lookback_days, DATA_SETTINGS["adjustment"], FEED)
+    ttl = DATA_SETTINGS["cache_ttl_minutes"][timeframe]
+    rows = None
 
+    if DATA_SETTINGS["cache_enabled"]:
+        rows = m1data.read_cache(CACHE_DIR, key, ttl, now)
+        if rows is not None:
+            _data_notes.append(f"Bars came from the disk cache (younger than {ttl:g} minutes).")
+
+    if rows is None:
+        rows = _request_bars(symbols, lookback_days, timeframe, now)
+        if DATA_SETTINGS["cache_enabled"] and ttl > 0:
+            m1data.write_cache(CACHE_DIR, key, rows, now)
+
+    frames, notes = m1data.process_rows(rows, timeframe, DATA_SETTINGS, now)
+    _data_notes.extend(notes)
     return frames
 
 
@@ -415,6 +439,7 @@ def fetch_ohlcv_batch(
 
     global _active_timeframe
 
+    _check_timeframe(timeframe)
     syms = _clean_symbols(symbols)
 
     frames = _fetch_bars(
@@ -455,6 +480,7 @@ def fetch_ohlcv_batch(
         "fetched": fetched,
         "missing": missing,
         "status": "ok",
+        "data_notes": list(_data_notes),
     }
 
 
@@ -613,6 +639,7 @@ def fetch_ohlcv(
 
     global _active_timeframe
 
+    _check_timeframe(timeframe)
     symbol = symbol.upper()
 
     frames = _fetch_bars(
