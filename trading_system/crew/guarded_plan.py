@@ -9,6 +9,7 @@
 # see place_approved() and crew/run_cycle.py.
 
 import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +20,14 @@ _PACKAGE_DIR = Path(__file__).resolve().parents[1]
 
 def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _money(value) -> float:
+    """A dollar amount from the snapshot; anything that is not a finite number counts as 0."""
+    return float(value) if _is_number(value) else 0.0
+
+
+_SYMBOL_PATTERN = re.compile(r"[A-Z0-9][A-Z0-9.\-]{0,9}")
 
 
 def load_sector_map(path=None) -> dict:
@@ -75,7 +84,8 @@ def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
     for row in decisions if isinstance(decisions, list) else []:
         if not isinstance(row, dict):
             continue
-        symbol = str(row.get("symbol", "")).strip().upper()
+        raw_symbol = row.get("symbol")
+        symbol = raw_symbol.strip().upper() if isinstance(raw_symbol, str) else ""
         decision = row.get("decision", "HOLD")
         price = row.get("latest_close")
         atr = row.get("atr")
@@ -92,17 +102,21 @@ def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
         def skip(why, _symbol=symbol, _decision=decision):
             skipped.append({"symbol": _symbol, "decision": _decision, "reason": why})
 
+        if not _SYMBOL_PATTERN.fullmatch(symbol):
+            skip("the symbol is not a valid ticker.")
+            continue
         if not _is_number(price) or price <= 0:
             skip("no valid latest_close, so no limit price.")
             continue
 
-        held = positions.get(symbol, {})
+        held = positions.get(symbol)
+        held = held if isinstance(held, dict) else {}
         if decision == "BUY":
             if not _is_number(atr) or atr <= 0:
                 skip("ATR is missing, so the stop distance and size cannot be computed.")
                 continue
-            sized = risk.size_position(symbol, float(price), float(atr), float(equity or 0),
-                                       existing_value=float(held.get("market_value") or 0.0), rules=rules)
+            sized = risk.size_position(symbol, float(price), float(atr), _money(equity),
+                                       existing_value=_money(held.get("market_value")), rules=rules)
             warnings.extend(f"{symbol}: {w}" for w in sized.get("warnings", []) if w != "bad input")
             if sized["qty"] <= 0:
                 skip(sized["reason"])
@@ -111,11 +125,13 @@ def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
             # The guardian checks the LIMIT price, which is a little above the last price, so make
             # sure the order still fits the position cap at the limit price.
             room = float(equity) * rules["position"]["max_single_position_pct"] \
-                - float(held.get("market_value") or 0.0)
+                - _money(held.get("market_value"))
             fit = int(max(0.0, room) / limit)
             if fit < sized["qty"]:
                 warnings.append(f"{symbol}: reduced to {fit} share(s) so the limit price fits the position cap.")
-                sized = dict(sized, qty=fit)
+                sized = dict(sized, qty=fit, reason=(
+                    f"{sized['reason']} Fitted to {fit} share(s) so the order fits the position "
+                    "cap at the limit price."))
                 if fit <= 0:
                     skip("no room under the position cap at the limit price.")
                     continue

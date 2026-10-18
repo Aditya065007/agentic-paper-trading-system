@@ -1725,11 +1725,21 @@ def _run_guarded_step(
     from trading_system.crew import guarded_plan as gp
     from trading_system.servers.tools import broker
 
+    broker_mode = (
+        os.environ.get("BROKER_MODE") or "offline"
+    ).strip().lower()
+
     try:
 
+        sector_map = gp.load_sector_map()
+
         snapshot = broker.get_portfolio_snapshot(
-            sector_map=gp.load_sector_map()
+            sector_map=sector_map
         )
+
+        # The guardian needs the sector of NEW buys as well, not only
+        # of stocks that are already held.
+        snapshot["sectors"] = sector_map
 
     except Exception as exc:
 
@@ -1742,13 +1752,27 @@ def _run_guarded_step(
             f"({type(exc).__name__}); no order proposed."
         )
         empty["broker_error"] = type(exc).__name__
+        empty["broker_mode"] = broker_mode
         return empty
 
-    return gp.build_guarded_plan(
+    guarded = gp.build_guarded_plan(
         decisions,
         snapshot,
         earnings_dates=gp.load_earnings_dates(),
     )
+
+    guarded["broker_mode"] = broker_mode
+
+    if broker_mode == "offline":
+
+        guarded["warnings"].insert(
+            0,
+            "OFFLINE FIXTURES: equity, cash and holdings used for "
+            "sizing are sample data, not your Alpaca account. "
+            "Set BROKER_MODE=alpaca_paper to use your paper account.",
+        )
+
+    return guarded
 
 
 def _print_guarded_summary(
@@ -1759,6 +1783,11 @@ def _print_guarded_summary(
     print("=" * 90)
     print("M5/M6 GUARDIAN (proposals only - nothing is sent anywhere)")
     print("=" * 90)
+
+    print(
+        "Account data source: "
+        f"{guarded_plan.get('broker_mode', 'unknown')}"
+    )
 
     for order in guarded_plan["approved"]:
 

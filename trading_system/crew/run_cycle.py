@@ -123,6 +123,8 @@ async def run_cycle(config: dict) -> dict:
         "skipped": plan.get("skipped", []),
         "warnings": plan.get("warnings", []),
         "approval": approval_state,
+        "broker_mode": plan.get("broker_mode"),
+        "broker_error": plan.get("broker_error"),
         "placed": placed,
         "dry_run": True,
         "report_path": result.get("report_path"),
