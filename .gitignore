@@ -29,3 +29,6 @@ trading_system/reports/
 
 # M1 disk cache of raw Alpaca bars
 trading_system/data_cache/
+
+# Local dashboard state (contains run history and may contain account-related data)
+trading_system/web/.local_state/
