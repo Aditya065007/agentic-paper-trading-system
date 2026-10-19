@@ -211,7 +211,9 @@ async def approve_run(request):
 async def save_keys(request):
     try:
         body = await request.json()
-        return JSONResponse({"keys": keys.save_settings(body.get("values", {}))})
+        with _RUN_LOCK:
+            saved = keys.save_settings(body.get("values", {}))
+        return JSONResponse({"keys": saved})
     except ValueError as exc: return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception: return JSONResponse({"error": "Could not save local settings."}, status_code=500)
 
