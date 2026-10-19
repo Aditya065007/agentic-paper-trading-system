@@ -19,3 +19,8 @@ torch
 pytest
 numpy
 tzdata
+
+# Local web dashboard (not used by the existing Streamlit report viewer)
+starlette
+uvicorn
+httpx

@@ -187,3 +187,43 @@ course brief shows `HH:MM`. The professor has not yet been asked to accept this.
 * Check the pull request's "Files changed" for `.env`, `.crewai/`, `run_reports/`, `memory/` and `data_cache/`.
   None of them belong in the repository.
 * The pull request goes into `integration/m1-m4-m8-m9`, not `main`.
+
+
+## Local web dashboard (not Render, not Streamlit)
+
+The dashboard is a local web application served by Starlette/Uvicorn. It calls the existing
+`trading_system.crew.run_cycle.run_cycle_sync` entry point; it does not implement a second trading pipeline.
+The existing `trading_system/ui/app.py` Streamlit report viewer is left unchanged.
+
+From the repository root, with the virtual environment active:
+
+```bash
+pip install -r trading_system/requirements.txt
+python -m trading_system.web.server
+```
+
+Open the exact `http://127.0.0.1:8765/?token=...` URL printed in the terminal. Keep the terminal open.
+The launch token changes each time the server starts. The server binds to loopback only, checks Host and
+Origin headers, and requires the token for API requests. Run the server separately on each teammate's own
+computer; each computer has its own `.env` and local run history.
+
+The desk lets you enter symbols, choose timeframe/lookback, run the pipeline, inspect decisions and
+guardian-approved proposals, approve selected symbols, view history, and save/test provider keys. Run
+results are saved locally under `trading_system/web/.local_state/` (ignored by Git). Approval uses the exact
+guardian-approved orders saved from that run; it does **not** rerun the pipeline. Approval snapshots expire
+after 15 minutes and are one-use.
+
+**Default is dry-run only.** The Approve button records dry-run placements and sends no broker orders.
+Live Alpaca PAPER submission requires all three conditions: start the server with
+`PAPER_WEB_LIVE_MODE=true`, set the existing `ALPACA_ORDERS_ENABLED=true` gate in the launch environment,
+and set `BROKER_MODE=alpaca_paper`. For example, from the repository root:
+
+```bash
+ALPACA_ORDERS_ENABLED=true BROKER_MODE=alpaca_paper PAPER_WEB_LIVE_MODE=true python -m trading_system.web.server
+```
+
+Only use Alpaca paper credentials. The dashboard cannot edit `ALPACA_ORDERS_ENABLED`,
+`ALPACA_STOPS_ENABLED`, or `ALPACA_TRADING_URL`; it cannot enable protective stops. The existing
+broker module's checks still apply. Inspect the displayed orders and confirm the explicit selection carefully.
+Do not expose the printed launch-token URL or the local server to other devices. Live submission has not
+been verified against Alpaca in this development session.
