@@ -187,3 +187,39 @@ course brief shows `HH:MM`. The professor has not yet been asked to accept this.
 * Check the pull request's "Files changed" for `.env`, `.crewai/`, `run_reports/`, `memory/` and `data_cache/`.
   None of them belong in the repository.
 * The pull request goes into `integration/m1-m4-m8-m9`, not `main`.
+
+
+## Render dashboard (new web UI)
+
+The new Northstar dashboard is a static Render site; the trading pipeline runs in a separate **local companion process**. This is intentional: entering API keys in a cloud-hosted backend would move each teammate's credentials into a shared cloud service. The dashboard calls only the local agent on `127.0.0.1`; it does not send keys to Render.
+
+### Deploy the dashboard
+
+1. Push/merge the `feature/render-web-ui` branch when ready.
+2. In Render, create a **Blueprint** from this repository and select `feature/render-web-ui`, or create a Static Site manually with publish directory `trading_system/webapp`. The root `render.yaml` describes the static site.
+3. After Render assigns a URL, copy its origin (for example, `https://your-dashboard.onrender.com`) exactly; do not include a path or trailing slash.
+
+### Run the local companion
+
+From the repository root, in the same WSL/Linux environment as the trading project:
+
+```bash
+source .venv/bin/activate
+TRADING_UI_ORIGINS="https://your-dashboard.onrender.com" python -m trading_system.webapp.local_agent
+```
+
+Use the exact Render origin above. The agent binds only to `127.0.0.1:8765`, prints a random pairing token, and keeps keys entered through the dashboard in process memory. Paste the token into **Local agent & credentials** and click **Connect local agent**. Keep the process running while using the dashboard. Stop it with Ctrl+C. Local run history is stored under `trading_system/webapp/.local_state/` and is git-ignored; the snapshots redact known secrets.
+
+The local companion loads your local `.env` for ordinary settings. **Do not put `ALPACA_ORDERS_ENABLED` or `ALPACA_STOPS_ENABLED` in `.env`**; the local agent ignores these two switches when loading dotenv and accepts them only from the process environment. Keep the order gate off for normal use.
+
+### UI behaviour and safety
+
+- **Run full pipeline** calls `run_cycle` with no approval. It saves the recommendations locally and submits no orders.
+- **Review & approve** displays the saved guardian-approved order list, including side, whole-share quantity, limit and advisory stop. Confirming it uses those exact saved order objects; it does **not** rerun scoring, news, or risk sizing. A snapshot can be approved only once.
+- Simulated approval is the default. Alpaca PAPER submission is available only when the local process was started with `ALPACA_ORDERS_ENABLED=true`, `BROKER_MODE=alpaca_paper`, paper credentials, and the existing M6 gates pass. The UI cannot switch on the order gate or stop gate. Check the returned status and Alpaca PAPER dashboard; never use live brokerage credentials.
+- The dashboard supports local key rotation for Alpaca PAPER, NewsAPI, and Groq. Key values are never returned by the API or written into snapshots. Values entered in the UI last only until the local process exits; for persistent local configuration, update your own git-ignored `.env`.
+- Each teammate runs their own companion with their own local credentials and local history. The Render site is shared static UI only; it does not provide shared run history or execute trades.
+- Browser security may block the local connection unless the exact Render origin is in `TRADING_UI_ORIGINS`. Do not use wildcard CORS, expose port 8765 to the internet, or tunnel the local agent publicly.
+- The existing `trading_system/ui/app.py` Streamlit report viewer remains unchanged.
+
+**Verification status:** the UI/API and offline tests are added in this branch; they still need to be run against a real checkout before calling the feature tested. Render deployment and browser-to-local-agent pairing must be verified using the actual deployed Render origin.
