@@ -14,3 +14,6 @@ litellm
 # Without these two packages and that download, news is skipped with a warning and the other signals still work.
 transformers
 torch
+
+# tests
+pytest
