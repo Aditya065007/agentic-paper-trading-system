@@ -26,7 +26,7 @@ from .memory import redact_text, safe_inline, sanitize
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 AGENTS = ("Data", "Scoring", "News", "Regime", "Bull", "Bear", "Judge", "Risk", "Reflection")
-TIMEFRAME_CODES = {"1Day": "1D", "1Hour": "1H"}
+TIMEFRAME_CODES = {"1Day": "1D", "1Hour": "1H"}   # a BOTH run (daily with an hourly veto) is named _BOTH
 CONFIG_FILES = ("data.yaml", "llm_verified.yaml", "profiles.yaml", "regime.yaml", "rules.yaml",
                 "universe.yaml", "weights.yaml")
 MAX_ITEMS, MAX_TEXT = 40, 600
@@ -107,8 +107,8 @@ def _ny_time(timestamp):
         return moment.astimezone(timezone.utc), "UTC"
 
 
-def file_name(agent, local_time, timeframe) -> str:
-    code = TIMEFRAME_CODES.get(timeframe, "NA")
+def file_name(agent, local_time, timeframe, mode=None) -> str:
+    code = "BOTH" if mode == "BOTH" else TIMEFRAME_CODES.get(timeframe, "NA")
     return f"agent{agent}_{local_time:%d%m%Y-%H-%M}_{code}.md"
 
 
@@ -287,7 +287,7 @@ def _write_one(agent, result, run_id, timestamp, folder, local, digest, provider
     if text is None:
         return None
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / file_name(agent, local, result.get("timeframe"))
+    target = folder / file_name(agent, local, result.get("timeframe"), result.get("timeframe_mode"))
     suffix = 1
     while True:
         candidate = target if suffix == 1 else target.with_name(f"{target.stem}_{suffix}{target.suffix}")

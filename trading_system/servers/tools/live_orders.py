@@ -11,7 +11,12 @@
 #   6. no order with the same client_order_id exists, and no open order for that symbol and side
 # One live order per symbol, side and UTC day: client_order_id = pt-YYYYMMDD-SYMBOL-side.
 #
-# Stops: the guardian's stop_price is advisory. No protective stop is placed at the broker here.
+# Stops (G8): the guardian's stop_price is advisory by default. A protective stop is attached to a BUY only
+# when a SEPARATE switch is on: ALPACA_STOPS_ENABLED=true in the real environment (default OFF; a UI cannot
+# set it). The stop goes in the same request as the entry as a One-Triggers-Other order (order_class "oto",
+# stop_loss.stop_price), so Alpaca activates it only after the entry fills. A BUY without a valid stop below its
+# limit price is REJECTED when the switch is on (never sent unprotected). [VERIFY live: Alpaca's OTO fields
+# and how the stop leg's time in force behaves for a DAY entry.]
 # Nothing in this module replaces or cancels orders; cancel in the Alpaca dashboard.
 
 import math
@@ -38,6 +43,21 @@ class _Unreachable(Exception):
 
 def orders_enabled() -> bool:
     return os.environ.get("ALPACA_ORDERS_ENABLED", "").strip().lower() == "true"
+
+
+def stops_enabled() -> bool:
+    return os.environ.get("ALPACA_STOPS_ENABLED", "").strip().lower() == "true"
+
+
+def _stop_for(order, clean):
+    """The protective stop price for a BUY: a positive number at least 0.01 below the limit price, else None."""
+    if clean["side"] != "buy" or not isinstance(order, dict):
+        return None
+    raw = order.get("stop_price")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        return None
+    stop = round(float(raw), 2)
+    return stop if 0 < stop <= round(clean["limit_price"] - 0.01, 2) else None
 
 
 def check_gates() -> None:
@@ -172,6 +192,11 @@ def submit_order(order: dict, run_date=None) -> dict:
         return {"order_id": None, "status": "rejected", "submitted": False, "live": True,
                 "reason": str(exc), "details": {"symbol": str(order.get("symbol")) if isinstance(order, dict) else None}}
     client_id = make_client_order_id(clean["symbol"], clean["side"], run_date)
+    stop = _stop_for(order, clean) if stops_enabled() else None
+    if stops_enabled() and clean["side"] == "buy" and stop is None:
+        return _result(clean, client_id, "rejected", False,
+                       "protective stops are on but the order has no valid stop price below its limit "
+                       "price; nothing was sent")
 
     try:
         # --- pre-flight against the real paper account
@@ -205,6 +230,9 @@ def submit_order(order: dict, run_date=None) -> dict:
     body = {"symbol": clean["symbol"], "qty": str(clean["qty"]), "side": clean["side"],
             "type": "limit", "time_in_force": "day",
             "limit_price": f"{clean['limit_price']:.2f}", "client_order_id": client_id}
+    if stop is not None:
+        body["order_class"] = "oto"
+        body["stop_loss"] = {"stop_price": f"{stop:.2f}"}
     try:
         response = _request("POST", "/orders", body=body)
     except _Unreachable as exc:
@@ -212,7 +240,8 @@ def submit_order(order: dict, run_date=None) -> dict:
 
     data = _json(response)
     if response.status_code in (200, 201) and isinstance(data, dict) and data.get("id"):
-        return _result(clean, client_id, str(data.get("status", "accepted")), True, alpaca=data)
+        extra = {"stop_attached": True, "stop_price": stop} if stop is not None else {}
+        return _result(clean, client_id, str(data.get("status", "accepted")), True, alpaca=data, **extra)
     return _result(clean, client_id, "rejected", False, _reason(response))
 
 

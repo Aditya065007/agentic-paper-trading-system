@@ -1395,6 +1395,9 @@ async def _run_strategy_impl(
     timeframe: str,
     advisory_band: str | None = None,
     guarded: bool = False,
+    hourly_veto: dict[str, str] | None = None,
+    timeframe_mode: str | None = None,
+    hourly_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
 
     symbols = normalize_symbols(
@@ -1731,6 +1734,12 @@ async def _run_strategy_impl(
         )
 
     # ==================================================================
+    # G8 BOTH timeframes: the hourly run may only veto a BUY (BUY -> HOLD)
+    # ==================================================================
+
+    vetoed = apply_hourly_veto(decisions, hourly_veto)
+
+    # ==================================================================
     # STARTER SIZING
     # ==================================================================
 
@@ -1798,7 +1807,42 @@ async def _run_strategy_impl(
         result["advisory"] = advisory_outcomes
         result["advisory_warnings"] = advisory_warnings
 
+    if timeframe_mode:
+
+        result["timeframe_mode"] = timeframe_mode
+        result["hourly_vetoed"] = vetoed
+        result["hourly_warnings"] = list(hourly_warnings or [])
+
     return result
+
+
+def apply_hourly_veto(
+    decisions: list[dict[str, Any]],
+    veto: dict[str, str] | None,
+) -> list[str]:
+    """
+    G8: downgrade a BUY to HOLD for every vetoed symbol. Never touches a
+    HOLD or a SELL and never creates an order. Returns the symbols changed.
+    """
+
+    changed: list[str] = []
+
+    for row in decisions or []:
+
+        if not isinstance(row, dict) or row.get("decision") != "BUY":
+            continue
+
+        why = (veto or {}).get(str(row.get("symbol", "")).upper())
+
+        if not why:
+            continue
+
+        row["decision"] = "HOLD"
+        row["hourly_veto"] = True
+        row["reason"] = f"Hourly veto: {why}. {row.get('reason', '')}".strip()
+        changed.append(str(row["symbol"]).upper())
+
+    return changed
 
 
 def _run_guarded_step(
@@ -2012,6 +2056,7 @@ def _is_degraded(
     return bool(
         result.get("news_warnings")
         or result.get("advisory_warnings")
+        or result.get("hourly_warnings")
         or has_missing(result.get("m2_report"))
         or has_missing(result.get("fetch_report"))
         or any(
@@ -2055,6 +2100,8 @@ def _build_m9_payload(
         result.get("regime_warnings") or []
     ) + list(
         result.get("advisory_warnings") or []
+    ) + list(
+        result.get("hourly_warnings") or []
     )
 
     for label, key in (
@@ -2340,6 +2387,9 @@ async def run_strategy(
     timeframe: str,
     advisory_band: str | None = None,
     guarded: bool = False,
+    hourly_veto: dict[str, str] | None = None,
+    timeframe_mode: str | None = None,
+    hourly_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Public entry point: run the strategy, then record M9 artifacts.
@@ -2364,6 +2414,12 @@ async def run_strategy(
         if guarded:
 
             impl_extra["guarded"] = True
+
+        if timeframe_mode:
+
+            impl_extra["hourly_veto"] = hourly_veto
+            impl_extra["timeframe_mode"] = timeframe_mode
+            impl_extra["hourly_warnings"] = hourly_warnings
 
         result = await _run_strategy_impl(
             symbols=symbols,

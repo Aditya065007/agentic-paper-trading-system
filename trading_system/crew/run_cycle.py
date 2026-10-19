@@ -10,7 +10,8 @@
 # config keys (all optional except symbols):
 #   symbols          list[str]            watch-list
 #   lookback_days    int                  default: orchestrator default
-#   timeframe        "1Day" | "1Hour"     default: orchestrator default
+#   timeframe        "1Day" | "1Hour" | "BOTH"   default: orchestrator default. BOTH = daily decides, the
+#                    hourly run may only veto a daily BUY (see crew/both_timeframes.py)
 #   advisory         bool                 run the M7 debate (needs GROQ_API_KEY)
 #   debate_band      "spec" | "borderline"
 #   approval         None | "all" | list[str]   None = stop and wait (default). "all" or a symbol list =
@@ -33,12 +34,13 @@ import contextlib
 import os
 from datetime import datetime, timezone
 
+from trading_system.crew import both_timeframes
 from trading_system.crew import guarded_plan as gp
 from trading_system.crew import trading_crew_multiStocks as crew
 from trading_system.servers.tools import live_orders
 
 ALLOWED_ENV = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY", "GROQ_API_KEY", "BROKER_MODE")
-VALID_TIMEFRAMES = ("1Day", "1Hour")
+VALID_TIMEFRAMES = ("1Day", "1Hour", "BOTH")
 VALID_BANDS = ("spec", "borderline")
 VALID_SUBMIT = (None, "alpaca_paper")
 
@@ -155,9 +157,14 @@ async def run_cycle(config: dict) -> dict:
     Raises CycleConfigError for a bad config; a failing run raises like run_strategy does."""
     cfg = _validate(config)
     with _temporary_env(cfg["env"]):
-        result = await crew.run_strategy(
-            symbols=cfg["symbols"], lookback_days=cfg["lookback_days"], timeframe=cfg["timeframe"],
-            **({"advisory_band": cfg["debate_band"]} if cfg["advisory"] else {}), guarded=True)
+        if cfg["timeframe"] == "BOTH":
+            result = await both_timeframes.run_both(
+                crew.run_strategy, cfg["symbols"], cfg["lookback_days"],
+                advisory_band=cfg["debate_band"] if cfg["advisory"] else None)
+        else:
+            result = await crew.run_strategy(
+                symbols=cfg["symbols"], lookback_days=cfg["lookback_days"], timeframe=cfg["timeframe"],
+                **({"advisory_band": cfg["debate_band"]} if cfg["advisory"] else {}), guarded=True)
 
         plan = result.get("guarded_plan") or {}
         approved_orders = plan.get("approved", [])
@@ -173,9 +180,11 @@ async def run_cycle(config: dict) -> dict:
                     try:
                         placed = live_orders.submit_orders(approved_orders, only_symbols=only)
                         submission = "alpaca_paper"
-                        if any(p.get("submitted") and p["details"]["side"] == "buy" for p in placed):
+                        if any(p.get("submitted") and p["details"]["side"] == "buy"
+                               and not p.get("stop_attached") for p in placed):
                             extra_warnings.append(
-                                "No protective stop is placed at the broker: stop_price is advisory only.")
+                                "No protective stop is placed at the broker: stop_price is advisory only "
+                                "(set ALPACA_STOPS_ENABLED=true on the command line to attach one).")
                     except live_orders.OrderSubmissionBlocked as exc:
                         submission, submission_error = "blocked", str(exc)
                 else:
@@ -229,6 +238,10 @@ async def run_cycle(config: dict) -> dict:
         "agent_report_paths": result.get("agent_report_paths"),
         "journal_files": result.get("journal_files"),
         "reflections": reflections,
+        "timeframe_mode": result.get("timeframe_mode"),
+        "hourly_vetoed": result.get("hourly_vetoed"),
+        "hourly_warnings": result.get("hourly_warnings"),
+        "hourly_run_id": result.get("hourly_run_id"),
     }
 
 
@@ -238,18 +251,71 @@ def run_cycle_sync(config: dict) -> dict:
 
 def _parse_cli(argv=None) -> dict:
     parser = argparse.ArgumentParser(
-        description="Run one paper-trading cycle (dry-run, nothing is sent to a broker).")
+        description="Run one paper-trading cycle (dry-run unless --approve/--submit).")
     parser.add_argument("symbols", nargs="*", default=["AAPL"], help="watch-list (default: AAPL)")
+    parser.add_argument("--timeframe", choices=VALID_TIMEFRAMES, default=None,
+                        help="1Day (default), 1Hour or BOTH (daily decides, hourly may veto a BUY)")
+    parser.add_argument("--approve", metavar="all|SYM,SYM", default=None,
+                        help="the human approval: place the guardian-approved orders for these symbols "
+                             "(dry-run broker unless --submit)")
+    parser.add_argument("--submit", action="store_true",
+                        help="send approved orders to the Alpaca PAPER account; needs --approve SYM,SYM (an "
+                             "explicit list) and ALPACA_ORDERS_ENABLED=true plus BROKER_MODE=alpaca_paper "
+                             "on the command line")
     parser.add_argument("--advisory", action="store_true", help="run the M7 Bull/Bear/Judge debate")
     parser.add_argument("--reflect", action="store_true",
                         help="reflect on closed trades (confirmed live fills only)")
     parser.add_argument("--reflect-dry-run", action="store_true",
                         help="also reflect on dry-run trades (implies --reflect)")
     args = parser.parse_args(argv)
-    return {"symbols": args.symbols, "advisory": args.advisory,
-            "reflect": args.reflect or args.reflect_dry_run, "reflect_dry_run": args.reflect_dry_run}
+    config = {"symbols": args.symbols, "advisory": args.advisory,
+              "reflect": args.reflect or args.reflect_dry_run, "reflect_dry_run": args.reflect_dry_run}
+    if args.timeframe:
+        config["timeframe"] = args.timeframe
+    if args.approve:
+        text = args.approve.strip()
+        config["approval"] = ("all" if text.lower() == "all"
+                              else [s.strip().upper() for s in text.split(",") if s.strip()])
+    if args.submit:
+        config["submit"] = "alpaca_paper"
+    return config
+
+
+def next_step_hint(config: dict, result: dict):
+    """The exact command that approves and places what this run proposed, or None.
+
+    Only for a run that stopped at the approval step with guardian-approved orders. It is text for a
+    human to read: nothing is placed by printing it, and every safety gate still applies to the command."""
+    if not isinstance(result, dict) or result.get("status") != "awaiting_approval":
+        return None
+    symbols = []
+    for order in result.get("approved") or []:
+        symbol = order.get("symbol") if isinstance(order, dict) else None
+        if isinstance(symbol, str) and symbol and symbol not in symbols:
+            symbols.append(symbol)
+    if not symbols:
+        return None
+    parts = ["ALPACA_ORDERS_ENABLED=true", "BROKER_MODE=alpaca_paper", "python -m trading_system.crew.run_cycle"]
+    parts += list(config.get("symbols") or [])
+    if config.get("timeframe"):
+        parts += ["--timeframe", config["timeframe"]]
+    if config.get("advisory"):
+        parts.append("--advisory")
+    parts += ["--approve", ",".join(symbols), "--submit"]
+    return ("To place these on the Alpaca PAPER account, run:\n  " + " ".join(parts) +
+            "\nThat re-runs the analysis; only symbols the guardian approves in that run are placed.")
 
 
 if __name__ == "__main__":
     import json
-    print(json.dumps(run_cycle_sync(_parse_cli()), indent=2, default=str))
+    import sys
+    try:
+        _config = _parse_cli()
+        _result = run_cycle_sync(_config)
+    except CycleConfigError as exc:
+        print(f"Not run: {exc}", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps(_result, indent=2, default=str))
+    _hint = next_step_hint(_config, _result)
+    if _hint:
+        print(_hint, file=sys.stderr)

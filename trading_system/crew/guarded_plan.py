@@ -91,6 +91,9 @@ def regime_block_reason(regime) -> str:
     return None
 
 
+BENCHMARK_SYMBOL = "SPY"   # fetched for context only (G8: never an order candidate)
+
+
 def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
                        earnings_dates: dict = None, today: str = None, regime: dict = None) -> dict:
     """Size every BUY/SELL decision, then run all proposals through the guardian.
@@ -136,6 +139,9 @@ def build_guarded_plan(decisions: list, snapshot: dict, rules: dict = None,
 
         if not _SYMBOL_PATTERN.fullmatch(symbol):
             skip("the symbol is not a valid ticker.")
+            continue
+        if symbol == BENCHMARK_SYMBOL:
+            skip("SPY is the benchmark, not a trading candidate.")
             continue
         if not _is_number(price) or price <= 0:
             skip("no valid latest_close, so no limit price.")
