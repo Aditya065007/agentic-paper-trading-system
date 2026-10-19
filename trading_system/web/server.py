@@ -31,6 +31,7 @@ SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
 MAX_SYMBOLS, SNAPSHOT_TTL = 25, 15 * 60
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="paper-cycle")
 _RUN_LOCK = threading.Lock()
+_APPROVAL_LOCK = threading.Lock()
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
@@ -148,30 +149,38 @@ async def list_runs(request):
             record["approval_expired"] = True
     return JSONResponse({"runs": [_public(r) for r in runs[:100]]})
 
+def _claim_approval(run_id, body):
+    """Validate and claim a saved proposal under one lock, preventing concurrent duplicate submissions."""
+    with _APPROVAL_LOCK:
+        record = store.get_run(run_id)
+        if not record: return None, JSONResponse({"error": "Run not found."}, status_code=404)
+        if body.get("confirm") is not True:
+            return None, JSONResponse({"error": "Explicit confirmation is required."}, status_code=400)
+        if record.get("status") != "completed" or record.get("pipeline_status") != "awaiting_approval":
+            return None, JSONResponse({"error": "This run has no pending approval."}, status_code=409)
+        expiry = record.get("approval_expires_at", 0)
+        if not isinstance(expiry, (int, float)) or time.time() > expiry:
+            return None, JSONResponse({"error": "Approval snapshot expired. Run the pipeline again."}, status_code=410)
+        orders = record.get("approved_orders") or []
+        if not orders: return None, JSONResponse({"error": "Guardian approved no orders in this run."}, status_code=409)
+        try: symbols = normalize_symbols(body.get("symbols"))
+        except ValueError as exc: return None, JSONResponse({"error": str(exc)}, status_code=400)
+        eligible = {str(o.get("symbol", "")).upper() for o in orders if isinstance(o, dict)}
+        if not set(symbols) <= eligible:
+            return None, JSONResponse({"error": "Only guardian-approved symbols from this run can be selected."}, status_code=400)
+        record["status"], record["approved_symbols"] = "submitting", symbols
+        store.save_run(record)
+        return (record, symbols, orders), None
+
 async def approve_run(request):
     try: body = await request.json()
     except Exception: return JSONResponse({"error": "Request body must be valid JSON."}, status_code=400)
-    record = store.get_run(request.path_params["run_id"])
-    if not record: return JSONResponse({"error": "Run not found."}, status_code=404)
-    if body.get("confirm") is not True: return JSONResponse({"error": "Explicit confirmation is required."}, status_code=400)
-    if record.get("status") != "completed" or record.get("pipeline_status") != "awaiting_approval":
-        return JSONResponse({"error": "This run has no pending approval."}, status_code=409)
-    expiry = record.get("approval_expires_at", 0)
-    if not isinstance(expiry, (int, float)) or time.time() > expiry:
-        return JSONResponse({"error": "Approval snapshot expired. Run the pipeline again."}, status_code=410)
-    orders = record.get("approved_orders") or []
-    if not orders: return JSONResponse({"error": "Guardian approved no orders in this run."}, status_code=409)
-    try: symbols = normalize_symbols(body.get("symbols"))
-    except ValueError as exc: return JSONResponse({"error": str(exc)}, status_code=400)
-    eligible = {str(o.get("symbol", "")).upper() for o in orders if isinstance(o, dict)}
-    if not set(symbols) <= eligible:
-        return JSONResponse({"error": "Only guardian-approved symbols from this run can be selected."}, status_code=400)
-    # Claim before broker action; repeat clicks cannot submit the same saved snapshot twice.
-    record["status"], record["approved_symbols"] = "submitting", symbols
-    store.save_run(record)
+    claimed, error = _claim_approval(request.path_params["run_id"], body)
+    if error: return error
+    record, symbols, orders = claimed
     try:
         if LIVE_MODE:
-            if os.environ.get("ALPACA_ORDERS_ENABLED", "").strip().lower() != "true":
+            if not LAUNCH_ORDERS_GATE:
                 raise PermissionError("Live mode requires ALPACA_ORDERS_ENABLED=true at launch.")
             if os.environ.get("BROKER_MODE", "").strip().lower() != "alpaca_paper":
                 raise PermissionError("Live mode requires BROKER_MODE=alpaca_paper.")
