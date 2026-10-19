@@ -17,3 +17,5 @@ torch
 
 # tests
 pytest
+numpy
+tzdata
