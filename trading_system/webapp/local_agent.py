@@ -18,11 +18,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+# Order and stop switches must be inherited from the process environment, not loaded
+# from .env. Capture them before dotenv so a local .env can never accidentally enable trading.
+_ORDER_GATE_AT_START = os.environ.get("ALPACA_ORDERS_ENABLED")
+_STOPS_GATE_AT_START = os.environ.get("ALPACA_STOPS_ENABLED")
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
     pass
+for _gate_name, _initial_value in (
+    ("ALPACA_ORDERS_ENABLED", _ORDER_GATE_AT_START),
+    ("ALPACA_STOPS_ENABLED", _STOPS_GATE_AT_START),
+):
+    if _initial_value is None:
+        os.environ.pop(_gate_name, None)
+    else:
+        os.environ[_gate_name] = _initial_value
+del _gate_name, _initial_value
 
 from trading_system.crew import guarded_plan, journal, run_cycle
 from trading_system.servers.tools import live_orders
