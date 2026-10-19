@@ -12,6 +12,8 @@ from pathlib import Path
 import uvicorn
 from dotenv import load_dotenv
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 from starlette.routing import Route
 from trading_system.web import keys, store
@@ -61,7 +63,7 @@ def _origin_ok(request):
     return not origin or origin in {
         "http://127.0.0.1:" + str(PORT), "http://localhost:" + str(PORT), "http://[::1]:" + str(PORT)}
 
-async def _guard(request, call_next):
+async async def _guard(request, call_next):
     if not _host_ok(request): return JSONResponse({"error": "Invalid Host header."}, status_code=400)
     if request.method not in {"GET", "HEAD", "OPTIONS"} and not _origin_ok(request):
         return JSONResponse({"error": "Invalid request origin."}, status_code=403)
@@ -221,7 +223,7 @@ async def test_key(request):
     try: return JSONResponse(keys.test_connection((await request.json()).get("provider", "")))
     except Exception: return JSONResponse({"ok": False, "message": "Connection test failed."}, status_code=400)
 
-app = Starlette(debug=False, routes=[
+app = Starlette(debug=False, middleware=[Middleware(BaseHTTPMiddleware, dispatch=_guard)], routes=[
     Route("/", home, methods=["GET"]),
     Route("/api/status", status, methods=["GET"]),
     Route("/api/runs", list_runs, methods=["GET"]),
@@ -231,7 +233,6 @@ app = Starlette(debug=False, routes=[
     Route("/api/keys", save_keys, methods=["POST"]),
     Route("/api/keys/test", test_key, methods=["POST"]),
 ])
-app.middleware("http")(_guard)
 
 def main():
     if not STATIC_DIR.joinpath("index.html").is_file(): raise SystemExit("Dashboard static/index.html is missing.")
