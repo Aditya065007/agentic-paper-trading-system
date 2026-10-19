@@ -19,6 +19,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from trading_system.servers.tools import scoring
+from . import journal
 from .agents import (
 	create_agents,
 	format_agent_prompt,
@@ -31,16 +33,22 @@ from .llm import load_llm_config
 # Verified live by the user on 2026-10-14 (CrewAI LLM call OK for both models).
 ADVISORY_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "llm_verified.yaml"
 
-# Same values as TRIAGE_THRESHOLDS in servers/tools/scoring.py (a test keeps them equal).
-TRIAGE_THRESHOLDS = {
-	"1Day": {"buy": 0.40, "sell": -0.40},
-	"1Hour": {"buy": 0.45, "sell": -0.45},
-}
-BAND_BUFFER = 0.10
+# One source of truth: config/profiles.yaml, read by servers/tools/scoring.py.
+TRIAGE_THRESHOLDS = scoring.TRIAGE_THRESHOLDS
+BAND_BUFFER = scoring.BORDERLINE_BUFFER
 # "spec": within 0.10 of a clear threshold on EITHER side (architecture spec 8.4).
 # "borderline": only rows the scorer already labelled borderline (0.10 inside the threshold).
 BAND_MODES = ("spec", "borderline")
 DEFAULT_BAND_MODE = "spec"
+
+# What the Judge's adjustment may do to a decision (G8; chosen by the team: consensus).
+#   report     the adjustment is logged but NEVER changes a decision.
+#   consensus  a decision changes only when the Judge status is ok, Bull and Bear both produced a case, and the
+#              adjustment points the same way as the threshold crossing (up for a rise, down for a fall).
+#   as_built   any threshold crossing after the adjustment changes the decision (the pre-G8 behaviour).
+DEBATE_MODES = ("report", "consensus", "as_built")
+DEFAULT_DEBATE_MODE = "consensus"
+_RANK = {"SELL": 0, "HOLD": 1, "BUY": 2}
 
 JUDGE_FALLBACK_PREFIX = "Invalid or unavailable Judge output"
 EXPECTED_BULLETS = "At most three short bullet lines, each starting with '- '. No other text."
@@ -52,6 +60,26 @@ EXPECTED = {"news": EXPECTED_NEWS, "bull": EXPECTED_BULLETS, "bear": EXPECTED_BU
 GROUNDING_RULE = ("Use ONLY the facts in the compact context JSON and in the other agents' "
 				  "outputs. Do not cite earnings, products, news, prices or any other outside facts.")
 ROSTER_CODE_AGENTS = ("Data", "Scoring", "Risk")
+
+
+def apply_debate_mode(mode: str, before, proposed, adjustment: float, bull, bear, status: str):
+	"""(decision, note): the decision the debate is allowed to produce under `mode`. Pure.
+
+	note is "" when the proposal stands, else why it was held back."""
+	if mode not in DEBATE_MODES:
+		raise ValueError(f"debate_mode must be one of {DEBATE_MODES}.")
+	if proposed == before or mode == "as_built":
+		return proposed, ""
+	if mode == "report":
+		return before, "report-only mode: the adjustment never changes a decision"
+	if status != "ok":
+		return before, "Judge status is not ok"
+	if not (bull and bear):
+		return before, "Bull or Bear case is missing"
+	rises = _RANK.get(proposed, 1) > _RANK.get(before, 1)
+	if (rises and not adjustment > 0) or (not rises and not adjustment < 0):
+		return before, "the adjustment does not point the same way as the crossing"
+	return proposed, ""
 
 
 def _finite(value) -> bool:
@@ -244,7 +272,8 @@ def _print_roster(printer, definitions, news_idle: bool) -> None:
 
 def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND_MODE,
 						config=None, client_factory=None, agent_factory=None,
-						crew_runner=None, printer=print, debate_runner=None) -> list[dict]:
+						crew_runner=None, printer=print, debate_runner=None,
+						debate_mode: str = DEFAULT_DEBATE_MODE) -> list[dict]:
 	"""Debate eligible rows. Mutates only those decision rows; returns one outcome per row.
 
 	Raises only for setup problems (unverified config, missing key, no CrewAI); the
@@ -252,12 +281,14 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 	crew_runner: single-agent runner (agent, prompt, expected) used for the Judge's one
 	retry, and for the whole debate when debate_runner is not supplied (stubs/tests).
 	"""
+	if debate_mode not in DEBATE_MODES:
+		raise ValueError(f"debate_mode must be one of {DEBATE_MODES}.")
 	loaded = load_llm_config(ADVISORY_CONFIG_PATH if config is None else config)
 	candidates = [row for row in decisions if is_debate_candidate(row, timeframe, band_mode)]
 	thresholds = TRIAGE_THRESHOLDS.get(timeframe, {})
 	printer()
 	printer("-" * 90)
-	printer(f"M7 ADVISORY DEBATE (band={band_mode}, thresholds={thresholds}, "
+	printer(f"M7 ADVISORY DEBATE (band={band_mode}, mode={debate_mode}, thresholds={thresholds}, "
 			f"cap=+/-{loaded['llm_influence_cap']})")
 	printer("-" * 90)
 	if not candidates:
@@ -291,7 +322,7 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 						  "sub_scores": row.get("sub_scores") or {}},
 			"regime": row.get("regime"),
 			"headlines": headlines,
-			"recent_lessons": [],
+			"recent_lessons": journal.load_recent_lessons(loaded["debate"].get("max_recent_lessons", 3)),
 		}
 		printer(f"\n  {symbol} | composite={composite:.4f} | triage={row.get('triage')} "
 				f"| decision={row.get('decision')}")
@@ -360,14 +391,23 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 
 		adjusted = composite + adjustment
 		decision_before = row.get("decision")
+		decision_proposed = decision_before
+		held_back = ""
 		if fell_back:
 			decision_after = decision_before  # failure never changes a deterministic decision
 		else:
-			decision_after = recheck_decision(adjusted, timeframe, bool(row.get("held")))
+			decision_proposed = recheck_decision(adjusted, timeframe, bool(row.get("held")))
+			decision_after, held_back = apply_debate_mode(
+				debate_mode, decision_before, decision_proposed, adjustment,
+				bullets["bull"], bullets["bear"], "ok")
 			row["decision"] = decision_after
 			row["reason"] = (f"M7 debate: adjustment {adjustment:+.4f} ({judged['reason']}); "
 							 f"adjusted composite {adjusted:.4f}; thresholds rechecked in code "
 							 f"-> {decision_after}.")
+			if held_back:
+				row["reason"] = (f"M7 debate ({debate_mode}): adjustment {adjustment:+.4f} would give "
+								 f"{decision_proposed} but {held_back}; the deterministic decision "
+								 f"{decision_before} stands.")
 		row["advisory_adjustment"] = adjustment
 		row["adjusted_composite"] = adjusted
 
@@ -375,6 +415,7 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 			"symbol": symbol, "band_mode": band_mode, "timeframe": timeframe,
 			"composite": composite, "adjustment": adjustment, "adjusted_composite": adjusted,
 			"decision_before": decision_before, "decision_after": decision_after,
+			"decision_proposed": decision_proposed, "debate_mode": debate_mode, "held_back": held_back,
 			"bull": bullets["bull"], "bear": bullets["bear"], "reason": judged["reason"],
 			"status": "fallback" if fell_back else "ok", "models": models,
 			"crew": [name.capitalize() for name in crew_roles],
@@ -386,5 +427,5 @@ def run_advisory_debate(decisions, timeframe: str, band_mode: str = DEFAULT_BAND
 			printer(f"    ! {warning}")
 		printer(f"    Judge: adjustment={adjustment:+.4f} | {judged['reason']}")
 		printer(f"    Result: composite {composite:.4f} -> {adjusted:.4f} | "
-				f"{decision_before} -> {decision_after}")
+				f"{decision_before} -> {decision_after}" + (f" (held back: {held_back})" if held_back else ""))
 	return outcomes

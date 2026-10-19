@@ -3,26 +3,84 @@
 import math
 from collections.abc import Mapping
 from numbers import Real
+from pathlib import Path
 
 
-WEIGHTS = {
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+WEIGHTS_PATH = CONFIG_DIR / "weights.yaml"
+GROUPS = ("trend", "momentum", "volume", "mean_reversion", "breakout_rs", "news")
+COLUMNS = ("trending", "ranging")
+
+# Built-in copy of config/weights.yaml (architecture 8.3). Used only if the file is missing or
+# invalid; a test keeps the two equal.
+DEFAULT_WEIGHT_CONFIG = {
+    "regime_blend": True,
     "core": {
-        "trend": 0.30,
-        "momentum": 0.20,
-        "volume": 0.15,
-        "mean_reversion": 0.05,
-        "breakout_rs": 0.15,
-        "news": 0.15,
+        "trending": {"trend": 0.30, "momentum": 0.20, "volume": 0.15,
+                     "mean_reversion": 0.05, "breakout_rs": 0.15, "news": 0.15},
+        "ranging": {"trend": 0.15, "momentum": 0.15, "volume": 0.15,
+                    "mean_reversion": 0.30, "breakout_rs": 0.10, "news": 0.15},
     },
     "high_beta": {
-        "trend": 0.25,
-        "momentum": 0.25,
-        "volume": 0.20,
-        "mean_reversion": 0.05,
-        "breakout_rs": 0.15,
-        "news": 0.10,
+        "trending": {"trend": 0.25, "momentum": 0.25, "volume": 0.20,
+                     "mean_reversion": 0.05, "breakout_rs": 0.15, "news": 0.10},
+        "ranging": {"trend": 0.10, "momentum": 0.15, "volume": 0.15,
+                    "mean_reversion": 0.35, "breakout_rs": 0.15, "news": 0.10},
     },
 }
+
+
+def _validate_weight_config(raw) -> dict:
+    """Return a clean copy of the weights mapping or raise ValueError with a short reason."""
+    if not isinstance(raw, Mapping):
+        raise ValueError("weights file is not a mapping")
+    blend = raw.get("regime_blend", True)
+    if not isinstance(blend, bool):
+        raise ValueError("regime_blend must be true or false")
+    clean = {"regime_blend": blend}
+    for sleeve in ("core", "high_beta"):
+        block = raw.get(sleeve)
+        if not isinstance(block, Mapping):
+            raise ValueError(f"missing sleeve '{sleeve}'")
+        clean[sleeve] = {}
+        for column in COLUMNS:
+            weights = block.get(column)
+            if not isinstance(weights, Mapping) or set(weights) != set(GROUPS):
+                raise ValueError(f"{sleeve}.{column} must list exactly {', '.join(GROUPS)}")
+            if not all(_finite(value) and value >= 0 for value in weights.values()):
+                raise ValueError(f"{sleeve}.{column} has a negative or non-numeric weight")
+            if abs(sum(weights.values()) - 1.0) > 1e-6:
+                raise ValueError(f"{sleeve}.{column} sums to {sum(weights.values()):.4f}, not 1.00")
+            clean[sleeve][column] = {group: float(weights[group]) for group in GROUPS}
+    return clean
+
+
+def load_weight_config(path=None) -> tuple[dict, str | None]:
+    """Read config/weights.yaml. Returns (config, warning); warning is None when the file was used."""
+    source = Path(path) if path is not None else WEIGHTS_PATH
+    try:
+        import yaml
+        with open(source, "r", encoding="utf-8") as stream:
+            return _validate_weight_config(yaml.safe_load(stream)), None
+    except Exception as exc:  # any setup mistake must fall back, never break scoring
+        return DEFAULT_WEIGHT_CONFIG, (
+            f"weights.yaml unusable ({type(exc).__name__}: {exc}); built-in default weights were used.")
+
+
+def blended_weights(sleeve: str, adx, config=None) -> dict:
+    """Weights = t x trending + (1 - t) x ranging, t = clip((ADX - 20) / 5, 0, 1).
+
+    Unknown ADX (None/NaN) or regime_blend false -> the trending column."""
+    config = config or WEIGHT_CONFIG
+    trending = config[sleeve]["trending"]
+    if not config.get("regime_blend", True):
+        return dict(trending)
+    _, t = classify_regime(adx)
+    if t is None:
+        return dict(trending)
+    ranging = config[sleeve]["ranging"]
+    return {group: t * trending[group] + (1.0 - t) * ranging[group] for group in GROUPS}
+
 
 GROUP_INDICATORS = {
     "trend": ("ema_spread", "adx_direction", "supertrend"),
@@ -31,11 +89,55 @@ GROUP_INDICATORS = {
     "mean_reversion": ("bollinger_percent_b", "zscore20"),
 }
 
-TRIAGE_THRESHOLDS = {
+PROFILES_PATH = CONFIG_DIR / "profiles.yaml"
+# Built-in copy of the wired part of config/profiles.yaml (architecture 5.5). Used only if the file
+# is missing or invalid; a test keeps the two equal.
+DEFAULT_TRIAGE_THRESHOLDS = {
     "1Day": {"buy": 0.40, "sell": -0.40},
     "1Hour": {"buy": 0.45, "sell": -0.45},
 }
-BORDERLINE_BUFFER = 0.10
+DEFAULT_BORDERLINE_BUFFER = 0.10
+
+
+def load_profiles(path=None) -> tuple[dict, float, str | None]:
+    """Read config/profiles.yaml. Returns (thresholds, borderline_buffer, warning).
+
+    Any problem falls back to the built-in defaults with a warning, so a typo can never silently move
+    the buy/sell lines."""
+    source = Path(path) if path is not None else PROFILES_PATH
+    try:
+        import yaml
+        with open(source, "r", encoding="utf-8") as stream:
+            data = yaml.safe_load(stream)
+        if not isinstance(data, Mapping):
+            raise ValueError("file is empty or not a mapping")
+        buffer = data.get("borderline_buffer")
+        if isinstance(buffer, bool) or not isinstance(buffer, Real) or not 0 < buffer < 0.5:
+            raise ValueError("borderline_buffer must be a number between 0 and 0.5")
+        thresholds = {}
+        for timeframe in DEFAULT_TRIAGE_THRESHOLDS:
+            block = data.get(timeframe)
+            if not isinstance(block, Mapping):
+                raise ValueError(f"missing profile '{timeframe}'")
+            buy, sell = block.get("buy_threshold"), block.get("sell_threshold")
+            if not all(isinstance(v, Real) and not isinstance(v, bool) and math.isfinite(v)
+                       for v in (buy, sell)):
+                raise ValueError(f"{timeframe}: buy_threshold and sell_threshold must be numbers")
+            if not 0 < buy <= 1 or not -1 <= sell < 0:
+                raise ValueError(f"{timeframe}: need 0 < buy_threshold <= 1 and -1 <= sell_threshold < 0")
+            if buy - buffer <= 0 or sell + buffer >= 0:
+                raise ValueError(f"{timeframe}: borderline_buffer is too wide for the thresholds")
+            thresholds[timeframe] = {"buy": float(buy), "sell": float(sell)}
+        return thresholds, float(buffer), None
+    except Exception as exc:  # any setup mistake must fall back, never break scoring
+        return (
+            {tf: dict(v) for tf, v in DEFAULT_TRIAGE_THRESHOLDS.items()},
+            DEFAULT_BORDERLINE_BUFFER,
+            f"profiles.yaml unusable ({type(exc).__name__}: {exc}); built-in default thresholds were used.",
+        )
+
+
+TRIAGE_THRESHOLDS, BORDERLINE_BUFFER, PROFILES_WARNING = load_profiles()
 VERIFY_WARNINGS = (
     "[VERIFY] Equal-mean aggregation within scoring groups has no approved intra-group weights.",
     "[VERIFY] Borderline covers the 0.10 interval immediately inside each clear threshold; clear thresholds take precedence.",
@@ -91,6 +193,11 @@ def classify_regime(adx) -> tuple[str | None, float | None]:
     if adx >= 25:
         return "trending", strength
     return "blend", strength
+
+
+WEIGHT_CONFIG, WEIGHT_CONFIG_WARNING = load_weight_config()
+# Trending column per sleeve: the weights used when ADX is >= 25 (and the pre-G2 behaviour).
+WEIGHTS = {sleeve: WEIGHT_CONFIG[sleeve]["trending"] for sleeve in ("core", "high_beta")}
 
 
 def classify_triage(composite, timeframe: str) -> str:
@@ -266,7 +373,10 @@ def score_indicators(symbol: str, timeframe: str, sleeve: str, sector: str,
     active_indicators.add("news")
     result["missing_indicators"] = sorted(name for name in missing if name in active_indicators)
 
-    weights = WEIGHTS[sleeve]
+    weights = blended_weights(sleeve, _raw_adx(indicators))
+    for config_warning in (WEIGHT_CONFIG_WARNING, PROFILES_WARNING):
+        if config_warning:
+            result["warnings"].append(config_warning)
     missing_weight = sum(
         weight for group, weight in weights.items()
         if not _finite(result["sub_scores"][group])

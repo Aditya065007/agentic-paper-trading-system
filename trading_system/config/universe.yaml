@@ -1,0 +1,36 @@
+# Starter sector map for the M5 sector-cap rule (30% per sector). Edit freely: one line per ticker.
+# A ticker that is not listed here is counted in a shared UNKNOWN bucket and the guardian warns.
+#
+# `sleeves` chooses the scoring weights per ticker: "core" (default) or "high_beta" (more weight on
+# momentum and volume, less on news). A ticker that is not listed is scored as "core".
+# STARTER ASSIGNMENT: a judgement call on volatility, not data. The team should confirm it (design
+# decision D10 asks for at least 30% of the stock universe to be high-beta; SPY is not counted).
+sectors:
+  AAPL: Technology
+  MSFT: Technology
+  NVDA: Technology
+  AMD: Technology
+  GOOGL: Communication
+  META: Communication
+  AMZN: Consumer Discretionary
+  TSLA: Consumer Discretionary
+  JPM: Financials
+  BAC: Financials
+  V: Financials
+  XOM: Energy
+  CVX: Energy
+  JNJ: Health Care
+  UNH: Health Care
+  KO: Consumer Staples
+  PG: Consumer Staples
+  WMT: Consumer Staples
+  CAT: Industrials
+  SPY: Index
+
+sleeves:
+  NVDA: high_beta
+  AMD: high_beta
+  TSLA: high_beta
+  META: high_beta
+  AMZN: high_beta
+  BAC: high_beta

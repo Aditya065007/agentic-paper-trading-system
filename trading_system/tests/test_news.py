@@ -174,7 +174,9 @@ class NewsToolTests(unittest.TestCase):
         load_finbert.return_value = prediction_pipeline(
             {"positive": 0.7, "negative": 0.1, "neutral": 0.2})
         result = news.score_headlines([{"symbol": "AAPL", "title": "AAPL rises"}])
-        self.assertEqual(result["news_score"], 0.6)
+        # One headline is thin evidence: the score is shrunk to 1/3 (G5 confidence guard).
+        self.assertAlmostEqual(result["news_score"], 0.2, places=6)
+        self.assertEqual(result["by_symbol"]["AAPL"]["raw_news_score"], 0.6)
         self.assertEqual(result["sentiment"], "positive")
 
     @patch("servers.tools.news._load_finbert")
@@ -182,7 +184,8 @@ class NewsToolTests(unittest.TestCase):
         load_finbert.return_value = prediction_pipeline(
             {"positive": 0.05, "negative": 0.85, "neutral": 0.10})
         result = news.score_headlines([{"symbol": "AAPL", "title": "AAPL plunges"}])
-        self.assertAlmostEqual(result["news_score"], -0.8)
+        self.assertAlmostEqual(result["news_score"], -0.8 / 3, places=5)
+        self.assertAlmostEqual(result["by_symbol"]["AAPL"]["raw_news_score"], -0.8, places=5)
         self.assertEqual(result["sentiment"], "negative")
 
     @patch("servers.tools.news._load_finbert")
@@ -207,7 +210,7 @@ class NewsToolTests(unittest.TestCase):
         article = {"symbol": "AAPL", "title": "AAPL gains", "url": "https://fixture.test/story"}
         result = news.score_headlines([article, article, None, {"symbol": "AAPL"}])
         self.assertEqual(result["article_count"], 1)
-        self.assertEqual(result["news_score"], 0.4)
+        self.assertAlmostEqual(result["news_score"], 0.4 / 3, places=5)
         self.assertTrue(any("Duplicate" in warning for warning in result["warnings"]))
         self.assertTrue(any("malformed" in warning or "without valid" in warning
                             for warning in result["warnings"]))

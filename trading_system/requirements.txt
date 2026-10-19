@@ -5,3 +5,12 @@ pydantic
 crewai
 crewai-tools
 streamlit
+python-dotenv
+pyyaml
+litellm
+
+# FinBERT news sentiment (M4). The model is loaded from the local cache only, so download it once:
+#   python -c "from transformers import AutoTokenizer, AutoModelForSequenceClassification as M; AutoTokenizer.from_pretrained('ProsusAI/finbert'); M.from_pretrained('ProsusAI/finbert')"
+# Without these two packages and that download, news is skipped with a warning and the other signals still work.
+transformers
+torch

@@ -501,8 +501,13 @@ def compute_indicators(frame, symbol: str, timeframe: str, spy_frame=None,
     else:
         result.warnings.append("SPY benchmark data not supplied; relative strength is unavailable.")
 
+    # Start from an empty list: the result object is created with every indicator pre-listed as
+    # missing, which used to survive here and made every run look like it had no indicators.
+    # Indicators that do not apply to this timeframe are not "missing" either.
+    not_applicable = {"vwap"} if timeframe == "1Day" else {"gap_percent"}
+    result.missing_indicators = []
     for name, value in indicators.items():
-        if not value.available:
+        if not value.available and name not in not_applicable:
             result.missing_indicators.append(name)
     for name, value in context.items():
         if not value.available:

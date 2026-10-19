@@ -37,15 +37,29 @@ from mcp.server.fastmcp import FastMCP
 
 from trading_system.servers.tools.indicators import compute_indicators
 from trading_system.servers.tools.scoring import score_indicators
-from trading_system.servers.tools.news import register_news_tools
+from trading_system.servers.tools.news import get_news_by_symbol, register_news_tools
+from trading_system.servers.tools.risk import register_risk_tools
+from trading_system.servers.tools.broker import register_broker_tools
+from trading_system.servers.tools import data as m1data
+from trading_system.servers.tools.regime import (compute_market_regime, load_regime_settings,
+                                                    register_regime_tools)
 
 mcp = FastMCP("TechnicalIndicators")
 register_news_tools(mcp)
+mcp.tool()(get_news_by_symbol)   # per-symbol news: cached, with a daily request budget
+register_risk_tools(mcp)
+register_broker_tools(mcp)
+register_regime_tools(mcp)
 
 ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
 FEED = "iex"
+
+# M1 settings (config/data.yaml): split adjustment, in-progress bar, regular hours, disk cache.
+DATA_SETTINGS, DATA_SETTINGS_WARNING = m1data.load_data_settings()
+CACHE_DIR = Path(os.environ.get("TRADING_DATA_CACHE_DIR")
+                 or Path(__file__).resolve().parents[1] / "data_cache")
 
 HEADERS = {
     "APCA-API-KEY-ID": ALPACA_API_KEY,
@@ -58,6 +72,18 @@ _cache: dict[tuple[str, str], dict] = {}
 # The current run's timeframe is used by indicator tools whose MCP contract
 # accepts only a symbol.
 _active_timeframe: str | None = None
+
+# Notes from the most recent fetch (dropped bars, cache use, settings problems), returned to the caller.
+_data_notes: list[str] = []
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _check_timeframe(timeframe):
+    if timeframe not in m1data.TIMEFRAMES:
+        raise ValueError("timeframe must be '1Day' or '1Hour'.")
 
 
 # ============================================================
@@ -80,14 +106,14 @@ def _clean_symbols(symbols) -> list[str]:
     return out
 
 
-def _fetch_bars(
+def _request_bars(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
+    end_dt: datetime,
 ) -> dict:
-    """Fetch paginated Alpaca OHLCV data for many symbols."""
+    """Ask Alpaca for bars (paginated, with retry). Returns the RAW rows {symbol: [bar dicts]}."""
 
-    end_dt = datetime.now(timezone.utc)
     start_dt = end_dt - timedelta(days=lookback_days)
 
     params = {
@@ -97,6 +123,7 @@ def _fetch_bars(
         "end": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "limit": 10_000,
         "feed": FEED,
+        "adjustment": DATA_SETTINGS["adjustment"],
     }
 
     url = f"{ALPACA_DATA_URL}/stocks/bars"
@@ -138,36 +165,41 @@ def _fetch_bars(
 
         params["page_token"] = token
 
-    frames = {}
+    return rows
 
-    for sym, bars in rows.items():
 
-        df = pd.DataFrame(bars)
+def _fetch_bars(
+    symbols: list[str],
+    lookback_days: int,
+    timeframe: str,
+) -> dict:
+    """Return clean OHLCV frames {symbol: DataFrame}. Notes go to _data_notes.
 
-        df["t"] = pd.to_datetime(df["t"])
+    Steps: disk cache (if fresh) or Alpaca -> drop invalid rows -> hourly regular hours only ->
+    drop the bar that is still forming. The cache stores the raw rows, so the last two steps are
+    always applied at the current time."""
 
-        df = (
-            df.set_index("t")
-            .sort_index()
-            .rename(
-                columns={
-                    "o": "open",
-                    "h": "high",
-                    "l": "low",
-                    "c": "close",
-                    "v": "volume",
-                }
-            )[[
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]]
-        )
+    now = _utcnow()
+    _data_notes.clear()
+    if DATA_SETTINGS_WARNING:
+        _data_notes.append(DATA_SETTINGS_WARNING)
 
-        frames[sym] = df
+    key = m1data.cache_key(symbols, timeframe, lookback_days, DATA_SETTINGS["adjustment"], FEED)
+    ttl = DATA_SETTINGS["cache_ttl_minutes"][timeframe]
+    rows = None
 
+    if DATA_SETTINGS["cache_enabled"]:
+        rows = m1data.read_cache(CACHE_DIR, key, ttl, now)
+        if rows is not None:
+            _data_notes.append(f"Bars came from the disk cache (younger than {ttl:g} minutes).")
+
+    if rows is None:
+        rows = _request_bars(symbols, lookback_days, timeframe, now)
+        if DATA_SETTINGS["cache_enabled"] and ttl > 0:
+            m1data.write_cache(CACHE_DIR, key, rows, now)
+
+    frames, notes = m1data.process_rows(rows, timeframe, DATA_SETTINGS, now)
+    _data_notes.extend(notes)
     return frames
 
 
@@ -408,6 +440,7 @@ def fetch_ohlcv_batch(
 
     global _active_timeframe
 
+    _check_timeframe(timeframe)
     syms = _clean_symbols(symbols)
 
     frames = _fetch_bars(
@@ -448,6 +481,7 @@ def fetch_ohlcv_batch(
         "fetched": fetched,
         "missing": missing,
         "status": "ok",
+        "data_notes": list(_data_notes),
     }
 
 
@@ -606,6 +640,7 @@ def fetch_ohlcv(
 
     global _active_timeframe
 
+    _check_timeframe(timeframe)
     symbol = symbol.upper()
 
     frames = _fetch_bars(
@@ -729,6 +764,8 @@ def calculate_m2_batch(
     sleeve: str = "core",
     sector: str | None = None,
     news_scores: dict[str, float | None] | None = None,
+    sleeves: dict[str, str] | None = None,
+    sectors: dict[str, str] | None = None,
 ) -> dict:
     """
     Run M2-A indicators and M2-B deterministic scoring for all
@@ -738,6 +775,12 @@ def calculate_m2_batch(
     the orchestrator (M4). A missing or invalid score is excluded by the
     scorer and the remaining weights are renormalized. No news is
     fetched here.
+
+    sleeves / sectors are optional {SYMBOL: value} maps. A symbol found
+    in `sleeves` is scored with that sleeve ("core" or "high_beta"); every
+    other symbol uses the `sleeve` argument (default "core"). `sectors`
+    works the same way for the sector label. An unknown sleeve value is
+    not guessed: the scorer rejects it and the symbol gets a fail-safe HOLD.
 
     M1 fetch_ohlcv_batch must be called first in the same MCP
     session/process. SPY must also be present in that cache so
@@ -770,6 +813,16 @@ def calculate_m2_batch(
         for raw_symbol, value in news_scores.items():
             supplied_news[str(raw_symbol).strip().upper()] = value
 
+    def _per_symbol(mapping):
+        out = {}
+        if isinstance(mapping, dict):
+            for raw_symbol, value in mapping.items():
+                out[str(raw_symbol).strip().upper()] = value
+        return out
+
+    sleeve_by_symbol = _per_symbol(sleeves)
+    sector_by_symbol = _per_symbol(sectors)
+
     results = []
     missing = []
 
@@ -789,8 +842,8 @@ def calculate_m2_batch(
             score_result = score_indicators(
                 symbol=symbol,
                 timeframe=timeframe,
-                sleeve=sleeve,
-                sector=sector,
+                sleeve=sleeve_by_symbol.get(symbol, sleeve),
+                sector=sector_by_symbol.get(symbol, sector),
                 indicator_result=indicator_dict,
                 news_score=supplied_news.get(symbol),
             )
@@ -817,6 +870,50 @@ def calculate_m2_batch(
         "missing": missing,
     }
 
+
+
+@mcp.tool()
+def get_market_regime(symbols: list[str] | None = None, timeframe: str = "1Day") -> dict:
+    """
+    M3 market backdrop from the bars already cached by fetch_ohlcv_batch:
+    SPY trend (last close vs EMA), SPY volatility and breadth (share of
+    `symbols` above their EMA) -> risk_mode risk_on | neutral | risk_off.
+
+    No data is fetched here. Missing SPY or watch-list bars give
+    risk_mode "neutral" with warnings, never risk_on. Limits come from
+    config/regime.yaml.
+    """
+
+    if timeframe not in {"1Day", "1Hour"}:
+        raise ValueError("timeframe must be '1Day' or '1Hour'.")
+
+    def _closes(symbol):
+        entry = _cache.get((symbol, timeframe))
+        if not entry:
+            return None
+        try:
+            return [float(v) for v in entry["df"]["close"].tolist()]
+        except Exception:
+            return None
+
+    watchlist = {}
+    for raw_symbol in symbols or []:
+        symbol = str(raw_symbol).strip().upper()
+        if symbol and symbol != "SPY":
+            closes = _closes(symbol)
+            if closes is not None:
+                watchlist[symbol] = closes
+
+    settings, settings_warning = load_regime_settings()
+    result = compute_market_regime(
+        _closes("SPY"), watchlist, settings, timeframe
+    )
+    if settings_warning:
+        result["warnings"].append(settings_warning)
+    result["block_new_buys_in_risk_off"] = bool(
+        settings.get("block_new_buys_in_risk_off")
+    )
+    return result
 
 
 # ============================================================

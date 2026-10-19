@@ -1,0 +1,44 @@
+# M2-B scoring weights (architecture 8.3). Every column must sum to 1.00.
+#
+# Weights for a stock = t x trending + (1 - t) x ranging, with t = clip((ADX - 20) / 5, 0, 1):
+#   ADX <= 20 -> ranging column only, ADX >= 25 -> trending column only, in between -> a mix.
+# If ADX is unavailable the trending column is used (the behaviour before this file existed).
+# Two sleeves: "core" (default) and "high_beta" (chosen per ticker in config/universe.yaml).
+#
+# regime_blend: false -> always use the trending column.
+# A missing or invalid file falls back to the same numbers built into scoring.py and every score
+# row carries a warning, so a typo here can never silently change the weights.
+# Changing a number here is an experiment: record it in docs/experiments.md.
+regime_blend: true
+
+core:
+  trending:
+    trend: 0.30
+    momentum: 0.20
+    volume: 0.15
+    mean_reversion: 0.05
+    breakout_rs: 0.15
+    news: 0.15
+  ranging:
+    trend: 0.15
+    momentum: 0.15
+    volume: 0.15
+    mean_reversion: 0.30
+    breakout_rs: 0.10
+    news: 0.15
+
+high_beta:
+  trending:
+    trend: 0.25
+    momentum: 0.25
+    volume: 0.20
+    mean_reversion: 0.05
+    breakout_rs: 0.15
+    news: 0.10
+  ranging:
+    trend: 0.10
+    momentum: 0.15
+    volume: 0.15
+    mean_reversion: 0.35
+    breakout_rs: 0.15
+    news: 0.10

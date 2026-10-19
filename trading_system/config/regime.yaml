@@ -1,0 +1,18 @@
+# M3 market regime settings (architecture 5.4 step 4). Starting values; changing one is an experiment,
+# record it in docs/experiments.md. A missing or invalid file falls back to the same built-in numbers
+# and the regime result carries a warning.
+#
+# risk_mode (computed from SPY and the watch-list, never from an LLM):
+#   risk_off : SPY below its EMA AND (SPY volatility >= risk_off_vol OR breadth < breadth_risk_off_pct)
+#   risk_on  : SPY above its EMA AND volatility < risk_off_vol AND breadth >= breadth_risk_on_pct
+#   neutral  : everything else, and whenever the data is missing (never risk_on on missing data)
+spy_ema_period: 50          # SPY trend = last close vs this EMA (in bars of the run's timeframe)
+vol_window: 20              # bars of returns used for SPY volatility (annualised)
+breadth_ema_period: 20      # a watch-list stock is "up" when it closes above this EMA
+risk_off_vol: 0.30          # annualised SPY volatility at or above this counts as stressed
+breadth_risk_on_pct: 50.0   # share of watch-list above its EMA needed (with an up trend) for risk_on
+breadth_risk_off_pct: 40.0  # breadth below this (with a down trend) is risk_off
+
+# false = the regime is reported only. true = the guardian layer blocks NEW buys while risk_off
+# (sells are never blocked). OPEN team decision: off until the team agrees.
+block_new_buys_in_risk_off: false

@@ -863,6 +863,7 @@ def make_decisions(
                 "regime": score.get("regime"),
                 "regime_strength": score.get("regime_strength"),
                 "adx": score.get("adx"),
+                "atr": score.get("atr"),
                 "sub_scores": score.get("sub_scores", {}),
                 "missing_indicators": indicators.get("missing_indicators", []),
                 "warnings": indicators.get("warnings", []),
@@ -883,6 +884,7 @@ def make_decisions(
                 "regime": None,
                 "regime_strength": None,
                 "adx": None,
+                "atr": None,
                 "sub_scores": {},
                 "missing_indicators": [],
                 "warnings": [],
@@ -908,6 +910,7 @@ def make_decisions(
             "regime": None,
             "regime_strength": None,
             "adx": None,
+            "atr": None,
             "sub_scores": {},
             "missing": item,
         })
@@ -1045,6 +1048,7 @@ def print_report(
     m2_report: dict[str, Any],
     decisions: list[dict[str, Any]],
     plan: list[dict[str, Any]],
+    guarded: bool = False,
 ) -> None:
 
     print()
@@ -1075,11 +1079,11 @@ def print_report(
     )
 
     print(
-        "LLM decision-making: DISABLED"
+        "LLM decision-making: NONE (code decides; the LLM only advises with --advisory)"
     )
 
     print(
-        "Order submission: DISABLED"
+        "Order submission: NONE from this report (orders need run_cycle approval)"
     )
 
     # ------------------------------------------------------------------
@@ -1231,7 +1235,9 @@ def print_report(
     print()
     print("-" * 90)
     print(
-        "STARTER ACTION PLAN"
+        "ACTION PLAN (sized and risk-checked by the guardian; nothing is sent)"
+        if guarded
+        else "STARTER ACTION PLAN (simple sizing, no risk check; use --guarded)"
     )
     print("-" * 90)
 
@@ -1275,8 +1281,15 @@ async def fetch_news_scores(
     This function never raises and never prints credentials.
     """
 
+    # Prefer one request per symbol (cached, budgeted) when the server offers it.
+    fetch_tool = (
+        "get_news_by_symbol"
+        if "get_news_by_symbol" in set(available_tools)
+        else "get_news"
+    )
+
     missing_tools = {
-        "get_news",
+        fetch_tool,
         "score_headlines",
     } - set(available_tools)
 
@@ -1288,7 +1301,7 @@ async def fetch_news_scores(
 
     try:
         news = await mcp.call_tool(
-            "get_news",
+            fetch_tool,
             {"symbols": list(symbols)},
         )
 
@@ -1342,11 +1355,49 @@ async def fetch_news_scores(
 # ============================================================================
 
 
+async def fetch_market_regime(
+    mcp: Any,
+    symbols: list[str],
+    timeframe: str,
+    available_tools: list[str],
+) -> tuple[dict | None, list[str]]:
+    """
+    Fetch the M3 market backdrop (SPY trend, volatility, breadth) from
+    the bars M1 just cached.
+
+    Returns (regime dict or None, warnings). The regime is optional:
+    any failure returns (None, [warning]) and the run continues. It
+    never raises and nothing here is a trading decision.
+    """
+
+    if "get_market_regime" not in set(available_tools):
+        return None, ["Market regime tool unavailable: get_market_regime"]
+
+    try:
+        regime = await mcp.call_tool(
+            "get_market_regime",
+            {"symbols": list(symbols), "timeframe": timeframe},
+        )
+    except Exception as exc:
+        return None, [
+            f"Market regime failed ({type(exc).__name__}); regime not used."
+        ]
+
+    if not isinstance(regime, dict) or "risk_mode" not in regime:
+        return None, ["Market regime returned an unexpected result; regime not used."]
+
+    return regime, [f"M3 {w}" for w in regime.get("warnings") or []]
+
+
 async def _run_strategy_impl(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
     advisory_band: str | None = None,
+    guarded: bool = False,
+    hourly_veto: dict[str, str] | None = None,
+    timeframe_mode: str | None = None,
+    hourly_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
 
     symbols = normalize_symbols(
@@ -1393,7 +1444,7 @@ async def _run_strategy_impl(
     )
 
     print(
-        "LLM decision-making: DISABLED"
+        "LLM decision-making: NONE (code decides; the LLM only advises with --advisory)"
     )
 
     if advisory_band:
@@ -1518,6 +1569,37 @@ async def _run_strategy_impl(
             "M1 fetch completed."
         )
 
+        # Data-layer notes from the M1 server (dropped in-progress bar,
+        # regular-hours filter, cache use). Informational only.
+        for data_note in fetch_report.get("data_notes") or []:
+            print(
+                f"M1 note: {data_note}"
+            )
+
+        # ==============================================================
+        # M3 — MARKET REGIME (optional; reported, and used only if
+        # config/regime.yaml says to pause new buys while risk_off)
+        # ==============================================================
+
+        regime, regime_warnings = await fetch_market_regime(
+            mcp=mcp,
+            symbols=symbols,
+            timeframe=timeframe,
+            available_tools=available_tools,
+        )
+
+        print()
+        if regime is not None:
+            print(
+                "M3 market regime: "
+                f"{regime.get('risk_mode')} "
+                f"(SPY trend {regime.get('spy_trend')}, "
+                f"vol {regime.get('spy_vol')}, "
+                f"breadth {regime.get('breadth_pct')}%)"
+            )
+        for warning in regime_warnings:
+            print(f"M3 warning: {warning}")
+
         # ==============================================================
         # M4 — NEWS SCORES (optional; failure never stops the run)
         # ==============================================================
@@ -1542,12 +1624,22 @@ async def _run_strategy_impl(
         # M2 — INDICATORS + DETERMINISTIC SCORING
         # ==============================================================
 
+        # Sleeve (core / high_beta) and sector per symbol come from
+        # config/universe.yaml. A ticker that is not listed keeps the
+        # default: sleeve "core", no sector.
+        from trading_system.crew import guarded_plan as gp
+
+        sleeve_map = gp.load_sleeve_map()
+        sector_labels = gp.load_sector_map()
+
         m2_args = {
             "symbols": symbols,
             "timeframe": timeframe,
             "sleeve": "core",
             "sector": None,
             "news_scores": news_scores,
+            "sleeves": {s: sleeve_map[s] for s in symbols if s in sleeve_map},
+            "sectors": {s: sector_labels[s] for s in symbols if s in sector_labels},
         }
 
         print()
@@ -1642,6 +1734,12 @@ async def _run_strategy_impl(
         )
 
     # ==================================================================
+    # G8 BOTH timeframes: the hourly run may only veto a BUY (BUY -> HOLD)
+    # ==================================================================
+
+    vetoed = apply_hourly_veto(decisions, hourly_veto)
+
+    # ==================================================================
     # STARTER SIZING
     # ==================================================================
 
@@ -1649,6 +1747,20 @@ async def _run_strategy_impl(
         decisions=decisions,
         capital=CAPITAL,
     )
+
+    # ==================================================================
+    # M5/M6 GUARDED PLAN (opt-in; proposes only, never places)
+    # ==================================================================
+
+    guarded_plan = None
+
+    if guarded:
+
+        guarded_plan = _run_guarded_step(decisions, regime)
+
+        # The guarded sizing replaces the starter sizing in the report
+        # and in M9 "actions"; the starter plan stays the default.
+        plan = guarded_plan["plan"]
 
     # ==================================================================
     # REPORT
@@ -1663,7 +1775,12 @@ async def _run_strategy_impl(
         m2_report=m2_report,
         decisions=decisions,
         plan=plan,
+        guarded=guarded_plan is not None,
     )
+
+    if guarded_plan is not None:
+
+        _print_guarded_summary(guarded_plan)
 
     result = {
         "status": "ok",
@@ -1675,16 +1792,171 @@ async def _run_strategy_impl(
         "m2_report": m2_report,
         "news_scores": news_scores,
         "news_warnings": news_warnings,
+        "regime": regime,
+        "regime_warnings": regime_warnings,
         "decisions": decisions,
         "plan": plan,
     }
+
+    if guarded_plan is not None:
+
+        result["guarded_plan"] = guarded_plan
 
     if advisory_band:
 
         result["advisory"] = advisory_outcomes
         result["advisory_warnings"] = advisory_warnings
 
+    if timeframe_mode:
+
+        result["timeframe_mode"] = timeframe_mode
+        result["hourly_vetoed"] = vetoed
+        result["hourly_warnings"] = list(hourly_warnings or [])
+
     return result
+
+
+def apply_hourly_veto(
+    decisions: list[dict[str, Any]],
+    veto: dict[str, str] | None,
+) -> list[str]:
+    """
+    G8: downgrade a BUY to HOLD for every vetoed symbol. Never touches a
+    HOLD or a SELL and never creates an order. Returns the symbols changed.
+    """
+
+    changed: list[str] = []
+
+    for row in decisions or []:
+
+        if not isinstance(row, dict) or row.get("decision") != "BUY":
+            continue
+
+        why = (veto or {}).get(str(row.get("symbol", "")).upper())
+
+        if not why:
+            continue
+
+        row["decision"] = "HOLD"
+        row["hourly_veto"] = True
+        row["reason"] = f"Hourly veto: {why}. {row.get('reason', '')}".strip()
+        changed.append(str(row["symbol"]).upper())
+
+    return changed
+
+
+def _run_guarded_step(
+    decisions: list[dict[str, Any]],
+    regime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Size and guardian-check the decisions (M5) against the broker
+    snapshot (M6). Proposes only. If the broker cannot be read safely
+    nothing is proposed: fail closed.
+    """
+
+    from trading_system.crew import guarded_plan as gp
+    from trading_system.servers.tools import broker
+
+    broker_mode = (
+        os.environ.get("BROKER_MODE") or "offline"
+    ).strip().lower()
+
+    try:
+
+        sector_map = gp.load_sector_map()
+
+        snapshot = broker.get_portfolio_snapshot(
+            sector_map=sector_map
+        )
+
+        # The guardian needs the sector of NEW buys as well, not only
+        # of stocks that are already held.
+        snapshot["sectors"] = sector_map
+
+    except Exception as exc:
+
+        empty = gp.build_guarded_plan(decisions, {})
+        empty["proposals"] = []
+        empty["approved"] = []
+        empty["blocked"] = []
+        empty["warnings"].append(
+            "Broker snapshot unavailable "
+            f"({type(exc).__name__}); no order proposed."
+        )
+        empty["broker_error"] = type(exc).__name__
+        empty["broker_mode"] = broker_mode
+        return empty
+
+    guarded = gp.build_guarded_plan(
+        decisions,
+        snapshot,
+        earnings_dates=gp.load_earnings_dates(),
+        regime=regime,
+    )
+
+    guarded["broker_mode"] = broker_mode
+
+    if broker_mode == "offline":
+
+        guarded["warnings"].insert(
+            0,
+            "OFFLINE FIXTURES: equity, cash and holdings used for "
+            "sizing are sample data, not your Alpaca account. "
+            "Set BROKER_MODE=alpaca_paper to use your paper account.",
+        )
+
+    return guarded
+
+
+def _print_guarded_summary(
+    guarded_plan: dict[str, Any],
+) -> None:
+
+    print()
+    print("=" * 90)
+    print("M5/M6 GUARDIAN (proposals only - nothing is sent anywhere)")
+    print("=" * 90)
+
+    print(
+        "Account data source: "
+        f"{guarded_plan.get('broker_mode', 'unknown')}"
+    )
+
+    for order in guarded_plan["approved"]:
+
+        print(
+            f"APPROVED {order['side'].upper():<4} {order['symbol']:<6} "
+            f"qty={order['qty']} limit={order['limit_price']} "
+            f"stop={order.get('stop_price')}"
+        )
+
+    for item in guarded_plan["blocked"]:
+
+        order = item.get("order") or {}
+        print(
+            f"BLOCKED  {str(order.get('side')).upper():<4} "
+            f"{order.get('symbol')} by {item['rule']}: {item['detail']}"
+        )
+
+    for item in guarded_plan["skipped"]:
+
+        print(
+            f"SKIPPED  {item['symbol']} {item['decision']}: "
+            f"{item['reason']}"
+        )
+
+    for warning in guarded_plan["warnings"]:
+
+        print(f"WARNING: {warning}")
+
+    if not (
+        guarded_plan["approved"]
+        or guarded_plan["blocked"]
+        or guarded_plan["skipped"]
+    ):
+
+        print("No BUY or SELL decision to size.")
 
 
 async def _run_advisory_step(
@@ -1784,6 +2056,7 @@ def _is_degraded(
     return bool(
         result.get("news_warnings")
         or result.get("advisory_warnings")
+        or result.get("hourly_warnings")
         or has_missing(result.get("m2_report"))
         or has_missing(result.get("fetch_report"))
         or any(
@@ -1824,7 +2097,11 @@ def _build_m9_payload(
     warnings = list(
         result.get("news_warnings") or []
     ) + list(
+        result.get("regime_warnings") or []
+    ) + list(
         result.get("advisory_warnings") or []
+    ) + list(
+        result.get("hourly_warnings") or []
     )
 
     for label, key in (
@@ -1856,6 +2133,22 @@ def _build_m9_payload(
         "actions": result.get("plan"),
         "warnings": warnings,
     }
+
+    if isinstance(result.get("regime"), dict):
+        payload["market_regime"] = {
+            key: result["regime"].get(key)
+            for key in ("risk_mode", "spy_trend", "spy_vol", "breadth_pct", "timeframe")
+        }
+
+    if result.get("guarded_plan") is not None:
+
+        guarded_plan = result["guarded_plan"]
+        payload["risk_results"] = {
+            "approved": guarded_plan.get("approved"),
+            "blocked": guarded_plan.get("blocked"),
+            "skipped": guarded_plan.get("skipped"),
+            "warnings": guarded_plan.get("warnings"),
+        }
 
     if result.get("advisory") is not None:
 
@@ -2058,11 +2351,45 @@ def _write_advisory_journals(
     return paths
 
 
+def _write_g6_artifacts(
+    result: dict[str, Any],
+    run_id: str,
+    timestamp: str,
+) -> tuple[list[str], dict[str, str]]:
+    """
+    Per-agent timestamped md files plus decisions.jsonl and
+    trade_journal.md. A writer failure is printed and never changes
+    the run (both writers also catch their own errors).
+    """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+    try:
+        from trading_system.crew import agent_files, journal
+
+        return (
+            agent_files.write_agent_files(result, run_id, timestamp),
+            journal.record_run(result, run_id, timestamp),
+        )
+
+    except Exception as exc:
+        print(
+            f"M9 journal warning: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return [], {}
+
+
 async def run_strategy(
     symbols: list[str],
     lookback_days: int,
     timeframe: str,
     advisory_band: str | None = None,
+    guarded: bool = False,
+    hourly_veto: dict[str, str] | None = None,
+    timeframe_mode: str | None = None,
+    hourly_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Public entry point: run the strategy, then record M9 artifacts.
@@ -2083,6 +2410,16 @@ async def run_strategy(
             if advisory_band
             else {}
         )
+
+        if guarded:
+
+            impl_extra["guarded"] = True
+
+        if timeframe_mode:
+
+            impl_extra["hourly_veto"] = hourly_veto
+            impl_extra["timeframe_mode"] = timeframe_mode
+            impl_extra["hourly_warnings"] = hourly_warnings
 
         result = await _run_strategy_impl(
             symbols=symbols,
@@ -2123,6 +2460,11 @@ async def run_strategy(
     result["degraded"] = degraded
     result["report_path"] = report_path
     result["journal_path"] = journal_path
+
+    (
+        result["agent_report_paths"],
+        result["journal_files"],
+    ) = _write_g6_artifacts(result, run_id, started_at)
 
     if result.get("advisory"):
 
@@ -2206,6 +2548,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--guarded",
+        action="store_true",
+        help=(
+            "Use the M5 guardian and M6 broker snapshot for sizing "
+            "(proposals only; no order is placed). Off by default."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -2225,6 +2576,10 @@ async def async_main() -> int:
             if args.advisory
             else {}
         )
+
+        if args.guarded:
+
+            run_extra["guarded"] = True
 
         result = await run_strategy(
             symbols=args.symbols,

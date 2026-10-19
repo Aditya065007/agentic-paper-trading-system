@@ -1,0 +1,26 @@
+# config/rules.yaml
+# Every risk limit the guardian obeys. Plain settings, no code, no secrets.
+# These are starting values (from the architecture) and can be tuned later.
+
+position:
+  max_single_position_pct: 0.12   # most equity allowed in any one stock
+  cash_reserve_pct:        0.10   # cash we never spend
+  max_sector_exposure_pct: 0.30   # most equity allowed in any one sector
+
+sizing:
+  risk_per_trade_pct:     0.01    # how much equity we'll risk on one trade
+  stop_loss_atr_mult:     2.0     # stop = entry price - (2 x ATR)
+  trailing_exit_atr_mult: 3.0     # exit if price falls 3 x ATR from its high
+
+limits:
+  daily_loss_limit_pct:   0.03    # down 3% on the day -> no new buys today
+  max_new_orders_per_day: 5       # stops over-trading
+  earnings_blackout_days: 2       # no new buys within 2 days of earnings
+
+orders:
+  order_type:   "limit"           # limit orders only
+  whole_shares: true              # no fractional shares
+  limit_buffer_pct: 0.002         # tiny price cushion on each limit order
+
+# (Cooldown-after-exit lives in a different file, profiles.yaml, because it
+#  changes with timeframe. We'll make that one later.)

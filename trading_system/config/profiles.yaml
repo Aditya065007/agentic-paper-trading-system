@@ -1,0 +1,31 @@
+# Timeframe profiles (architecture 5.5). Starting values, to tune.
+#
+# WIRED INTO THE CODE (read by servers/tools/scoring.py; crew/advisory.py takes them from there):
+#   buy_threshold / sell_threshold   composite level for a clear BUY / SELL
+#   borderline_buffer                width of the borderline band inside each threshold (shared)
+# REFERENCE ONLY (documented here, enforced elsewhere or not used yet):
+#   alpaca_timeframe, history_days, run_schedule, intended_hold
+#   stop_atr_mult and cooldown_bars are enforced by the guardian in config/rules.yaml
+# If this file is missing or invalid, built-in defaults (the same numbers) are used and every score row
+# carries a warning, so a typo can never silently move the buy/sell lines.
+borderline_buffer: 0.10
+
+1Day:
+  alpaca_timeframe: 1Day
+  history_days: 250
+  run_schedule: once after close
+  buy_threshold: 0.40
+  sell_threshold: -0.40
+  stop_atr_mult: 2
+  cooldown_bars: 3
+  intended_hold: 3-5 days
+
+1Hour:
+  alpaca_timeframe: 1Hour
+  history_days: 30
+  run_schedule: hourly in market hours
+  buy_threshold: 0.45
+  sell_threshold: -0.45
+  stop_atr_mult: 2
+  cooldown_bars: 4
+  intended_hold: 1-2 days

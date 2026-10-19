@@ -26,3 +26,6 @@ trading_system/memory/*
 # Runtime reports
 run_reports/
 trading_system/reports/
+
+# M1 disk cache of raw Alpaca bars
+trading_system/data_cache/
