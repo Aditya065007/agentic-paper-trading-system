@@ -139,3 +139,13 @@ def test_live_approval_is_blocked_when_master_gate_is_off(monkeypatch, tmp_path)
         agent.approve_saved_orders({
             "snapshot_id": snapshot["snapshot_id"], "symbols": ["AAPL"], "mode": "alpaca_paper"
         })
+
+
+def test_dashboard_cannot_enable_order_or_stop_safety_gates(monkeypatch):
+    monkeypatch.delenv("ALPACA_ORDERS_ENABLED", raising=False)
+    monkeypatch.delenv("ALPACA_STOPS_ENABLED", raising=False)
+    for name in ("ALPACA_ORDERS_ENABLED", "ALPACA_STOPS_ENABLED"):
+        with pytest.raises(agent.RequestError, match="cannot be changed"):
+            agent.update_local_settings({name: "true"})
+    assert "ALPACA_ORDERS_ENABLED" not in os.environ
+    assert "ALPACA_STOPS_ENABLED" not in os.environ
