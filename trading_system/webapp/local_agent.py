@@ -44,6 +44,7 @@ PACKAGE_DIR = Path(__file__).resolve().parents[1]
 REPORTS_DIR = PACKAGE_DIR / "run_reports"
 STATE_DIR = Path(__file__).resolve().parent / ".local_state"
 DEFAULT_PORT = 8765
+APPROVAL_TTL_SECONDS = 15 * 60
 KEY_NAMES = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY", "NEWSAPI_KEY", "GROQ_API_KEY")
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 RUN_LOCK = threading.RLock()
@@ -252,6 +253,16 @@ def approve_saved_orders(payload: dict) -> dict:
         snapshot = _load_snapshot(str(snapshot_id))
         if snapshot.get("approval_state") != "pending":
             raise RequestError("This run is no longer awaiting approval. Run analysis again if needed.", 409)
+        try:
+            created = datetime.fromisoformat(str(snapshot.get("created_at", "")).replace("Z", "+00:00"))
+            age_seconds = (datetime.now(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            age_seconds = APPROVAL_TTL_SECONDS + 1
+        if age_seconds < 0 or age_seconds > APPROVAL_TTL_SECONDS:
+            snapshot["approval_state"] = "expired"
+            snapshot["approval_note"] = "Approval window expired. Run analysis again before approving orders."
+            _save_snapshot(snapshot)
+            raise RequestError("This recommendation expired after 15 minutes. Run the pipeline again before approving.", 409)
         orders = snapshot.get("approved")
         if not isinstance(orders, list) or not orders:
             raise RequestError("This run has no guardian-approved orders.", 409)
