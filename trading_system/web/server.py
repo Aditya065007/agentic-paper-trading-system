@@ -19,8 +19,12 @@ from trading_system.web import keys, store
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Capture live mode BEFORE loading .env: a value in .env must never enable live mode.
 LIVE_MODE = os.environ.get("PAPER_WEB_LIVE_MODE", "").strip().lower() == "true"
+LAUNCH_ORDERS_GATE = os.environ.get("ALPACA_ORDERS_ENABLED", "").strip().lower() == "true"
+LAUNCH_STOPS_GATE = os.environ.get("ALPACA_STOPS_ENABLED", "").strip().lower() == "true"
 PORT = int(os.environ.get("PAPER_WEB_PORT", "8765"))
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+os.environ["ALPACA_ORDERS_ENABLED"] = "true" if LAUNCH_ORDERS_GATE else "false"
+os.environ["ALPACA_STOPS_ENABLED"] = "true" if LAUNCH_STOPS_GATE else "false"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LAUNCH_TOKEN = secrets.token_urlsafe(32)
 SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
@@ -106,7 +110,7 @@ async def home(request):
 
 async def status(request):
     return JSONResponse({"ok": True, "live_mode": LIVE_MODE,
-        "orders_gate_open": os.environ.get("ALPACA_ORDERS_ENABLED", "").strip().lower() == "true",
+        "orders_gate_open": LAUNCH_ORDERS_GATE,
         "broker_mode": os.environ.get("BROKER_MODE", "offline").strip().lower(),
         "keys": keys.public_settings(), "max_symbols": MAX_SYMBOLS, "snapshot_ttl_seconds": SNAPSHOT_TTL})
 
