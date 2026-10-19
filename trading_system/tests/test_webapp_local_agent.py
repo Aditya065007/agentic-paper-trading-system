@@ -149,3 +149,16 @@ def test_dashboard_cannot_enable_order_or_stop_safety_gates(monkeypatch):
             agent.update_local_settings({name: "true"})
     assert "ALPACA_ORDERS_ENABLED" not in os.environ
     assert "ALPACA_STOPS_ENABLED" not in os.environ
+
+
+def test_stale_snapshot_expires_before_approval(monkeypatch, tmp_path):
+    monkeypatch.setattr(agent, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(agent.run_cycle, "run_cycle_sync", lambda config: sample_result())
+    snapshot = agent.execute_cycle({"symbols": ["AAPL", "TSLA"]})
+    snapshot["created_at"] = "2020-01-01T00:00:00+00:00"
+    agent._save_snapshot(snapshot)
+    with pytest.raises(agent.RequestError, match="expired"):
+        agent.approve_saved_orders({
+            "snapshot_id": snapshot["snapshot_id"], "symbols": ["AAPL"], "mode": "dry_run"
+        })
+    assert agent._load_snapshot(snapshot["snapshot_id"])["approval_state"] == "expired"
