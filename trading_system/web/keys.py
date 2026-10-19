@@ -60,7 +60,7 @@ def public_settings():
     for name in sorted(EDITABLE):
         value = os.environ.get(name, "")
         if name in SECRET_KEYS:
-            result[name] = {"configured": bool(value), "masked": ("••••" + value[-4:]) if value else ""}
+            result[name] = {"configured": bool(value), "masked": ("••••" + (value[-4:] if len(value) > 4 else "")) if value else ""}
         else:
             result[name] = value or ("offline" if name == "BROKER_MODE" else "")
     return result
