@@ -169,6 +169,12 @@ def update_local_settings(payload: dict) -> dict:
     """Update process memory only. No key value is returned or written to disk."""
     if not isinstance(payload, dict):
         raise RequestError("Settings must be a JSON object.")
+    allowed = set(KEY_NAMES) | {"broker_mode"}
+    unknown = set(payload) - allowed
+    if unknown:
+        if unknown & {"ALPACA_ORDERS_ENABLED", "ALPACA_STOPS_ENABLED"}:
+            raise RequestError("Order and stop safety switches cannot be changed through the dashboard.", 403)
+        raise RequestError("Unsupported local setting.")
     mode = payload.get("broker_mode")
     if mode is not None:
         if mode not in ("offline", "alpaca_paper"):
