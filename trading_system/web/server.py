@@ -111,11 +111,23 @@ async def home(request):
         return PlainTextResponse("Open the exact local URL printed in the terminal.", status_code=403)
     return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
 
+def _presets():
+    starter = ["AAPL", "MSFT", "NVDA", "JPM"]
+    try:
+        import yaml
+        data = yaml.safe_load((PROJECT_ROOT / "config" / "universe.yaml").read_text(encoding="utf-8"))
+        sectors = data.get("sectors", {}) if isinstance(data, dict) else {}
+        full = [str(symbol) for symbol in sectors if str(symbol).upper() != "SPY"]
+        return {"starter": starter, "full": full or starter}
+    except Exception:
+        return {"starter": starter, "full": starter}
+
 async def status(request):
     return JSONResponse({"ok": True, "live_mode": LIVE_MODE,
         "orders_gate_open": LAUNCH_ORDERS_GATE,
         "broker_mode": os.environ.get("BROKER_MODE", "offline").strip().lower(),
-        "keys": keys.public_settings(), "max_symbols": MAX_SYMBOLS, "snapshot_ttl_seconds": SNAPSHOT_TTL})
+        "keys": keys.public_settings(), "max_symbols": MAX_SYMBOLS, "snapshot_ttl_seconds": SNAPSHOT_TTL,
+        "presets": _presets()})
 
 async def create_run(request):
     try:
