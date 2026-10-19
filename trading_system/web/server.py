@@ -44,7 +44,7 @@ def _safe(value):
     if isinstance(value, str):
         for name in keys.SECRET_KEYS:
             secret = os.environ.get(name, "")
-            if secret and len(secret) >= 4: value = value.replace(secret, "[REDACTED]")
+            if secret: value = value.replace(secret, "[REDACTED]")
         return value[:10000]
     if value is None or isinstance(value, (int, float, bool)): return value
     return str(value)[:1000]
