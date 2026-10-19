@@ -63,7 +63,7 @@ def _origin_ok(request):
     return not origin or origin in {
         "http://127.0.0.1:" + str(PORT), "http://localhost:" + str(PORT), "http://[::1]:" + str(PORT)}
 
-async async def _guard(request, call_next):
+async def _guard(request, call_next):
     if not _host_ok(request): return JSONResponse({"error": "Invalid Host header."}, status_code=400)
     if request.method not in {"GET", "HEAD", "OPTIONS"} and not _origin_ok(request):
         return JSONResponse({"error": "Invalid request origin."}, status_code=403)
