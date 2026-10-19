@@ -7,8 +7,9 @@ New York time, the market's clock; the header also gives UTC.)
 
 Every file starts with the same header: run id, timestamp, watch-list, timeframe, LLM provider and model
 id, config hash. The agents are the roster of spec section 11: Data, Scoring, News, Regime, Bull, Bear,
-Judge, Risk. A file is written only for an agent that produced something in the run (the debate agents
-only when --advisory ran, Risk only with --guarded). Reflection files come with G7.
+Judge, Risk, Reflection. A file is written only for an agent that produced something in the run (the
+debate agents only when --advisory ran, Risk only with --guarded, Reflection only when a closed trade was
+reflected; crew/reflection.py writes that file after the cycle).
 
 Offline and tolerant: all text goes through memory.sanitize (secrets redacted) and write_agent_files
 never raises."""
@@ -24,7 +25,7 @@ from . import memory, reporting
 from .memory import redact_text, safe_inline, sanitize
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
-AGENTS = ("Data", "Scoring", "News", "Regime", "Bull", "Bear", "Judge", "Risk")
+AGENTS = ("Data", "Scoring", "News", "Regime", "Bull", "Bear", "Judge", "Risk", "Reflection")
 TIMEFRAME_CODES = {"1Day": "1D", "1Hour": "1H"}
 CONFIG_FILES = ("data.yaml", "llm_verified.yaml", "profiles.yaml", "regime.yaml", "rules.yaml",
                 "universe.yaml", "weights.yaml")
@@ -221,12 +222,35 @@ def _body_risk(result):
     return lines
 
 
+def _body_reflection(result):
+    items = [r for r in result.get("reflections") or [] if isinstance(r, Mapping)]
+    if not items:
+        return None
+    lines = ["M7 Reflection agent: a short post-mortem on each closed trade. Advisory only; it never "
+             "changes a decision, a size or an order.", ""]
+    lines += _table(["Symbol", "Account", "Qty", "Entry", "Exit", "P/L", "P/L %", "Days", "Prices",
+                     "Assessment", "Status"],
+                    [(r.get("symbol"), r.get("account"), r.get("qty"), r.get("entry_price"),
+                      r.get("exit_price"), r.get("pnl"), r.get("pnl_pct"), r.get("days_held"),
+                      r.get("price_basis"), r.get("assessment"), r.get("status")) for r in items])
+    lines += ["", "## Lessons", ""]
+    for r in items:
+        lines.append(f"- {safe_inline(r.get('symbol'))}: {safe_inline(r.get('lesson') or '(none)')}")
+        lines += [f"  - warning: {safe_inline(w)}" for w in r.get("warnings") or []]
+    return lines
+
+
 _BODIES = {"Data": _body_data, "Scoring": _body_scoring, "News": _body_news, "Regime": _body_regime,
            "Bull": lambda r: _body_debate_side(r, "bull"), "Bear": lambda r: _body_debate_side(r, "bear"),
-           "Judge": _body_judge, "Risk": _body_risk}
+           "Judge": _body_judge, "Risk": _body_risk, "Reflection": _body_reflection}
 
 
 def _llm_model(agent, result):
+    if agent == "Reflection":
+        for item in result.get("reflections") or []:
+            if isinstance(item, Mapping) and item.get("model"):
+                return str(item["model"])
+        return None
     if agent not in ("Bull", "Bear", "Judge"):
         return None
     for outcome in _debate(result):
@@ -257,32 +281,54 @@ def render_agent_file(agent, result, run_id, timestamp, config_digest=None, prov
     return redact_text("\n".join(header + list(body))).rstrip() + "\n"
 
 
+def _write_one(agent, result, run_id, timestamp, folder, local, digest, provider):
+    """Render and write one agent file; returns its path, or None if the agent had nothing to report."""
+    text = render_agent_file(agent, result, run_id, timestamp, digest, provider)
+    if text is None:
+        return None
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / file_name(agent, local, result.get("timeframe"))
+    suffix = 1
+    while True:
+        candidate = target if suffix == 1 else target.with_name(f"{target.stem}_{suffix}{target.suffix}")
+        try:
+            with candidate.open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(text)
+            return str(candidate)
+        except FileExistsError:
+            suffix += 1
+
+
+def _folder_and_time(timestamp, reports_dir):
+    local, _ = _ny_time(timestamp)
+    base = Path(reports_dir) if reports_dir is not None else Path(reporting.REPORTS_DIR)
+    return base / f"{local:%Y%m%d}", local
+
+
+def write_agent_file(agent, result, run_id, timestamp, reports_dir=None):
+    """Write the file of ONE agent (used by the Reflection step, which runs after the cycle).
+    Returns the path, or None if there was nothing to report or the write failed. Never raises."""
+    try:
+        result = result if isinstance(result, Mapping) else {}
+        folder, local = _folder_and_time(timestamp, reports_dir)
+        return _write_one(agent, result, run_id, timestamp, folder, local, config_hash(), _llm_provider())
+    except Exception as exc:
+        print(f"M9 agent file warning ({agent}): {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+
+
 def write_agent_files(result, run_id, timestamp, reports_dir=None) -> list:
     """Write one file per agent that has output. Returns the paths; never raises."""
     paths = []
     try:
         result = result if isinstance(result, Mapping) else {}
-        local, _ = _ny_time(timestamp)
-        base = Path(reports_dir) if reports_dir is not None else Path(reporting.REPORTS_DIR)
-        folder = base / f"{local:%Y%m%d}"
+        folder, local = _folder_and_time(timestamp, reports_dir)
         digest, provider = config_hash(), _llm_provider()
         for agent in AGENTS:
             try:
-                text = render_agent_file(agent, result, run_id, timestamp, digest, provider)
-                if text is None:
-                    continue
-                folder.mkdir(parents=True, exist_ok=True)
-                target = folder / file_name(agent, local, result.get("timeframe"))
-                suffix = 1
-                while True:
-                    candidate = target if suffix == 1 else target.with_name(f"{target.stem}_{suffix}{target.suffix}")
-                    try:
-                        with candidate.open("x", encoding="utf-8", newline="\n") as stream:
-                            stream.write(text)
-                        paths.append(str(candidate))
-                        break
-                    except FileExistsError:
-                        suffix += 1
+                path = _write_one(agent, result, run_id, timestamp, folder, local, digest, provider)
+                if path:
+                    paths.append(path)
             except Exception as exc:
                 print(f"M9 agent file warning ({agent}): {type(exc).__name__}: {exc}", file=sys.stderr)
     except Exception as exc:

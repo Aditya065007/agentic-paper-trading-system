@@ -193,6 +193,32 @@ def append_order_results(run_id, timeframe, placed, live=False, timestamp=None, 
         return {}
 
 
+def append_outcome(record: Mapping, memory_dir=None) -> bool:
+    """Append one "outcome" line (a closed trade and its reflection) and a short block in trade_journal.md.
+
+    Returns False if nothing was written. Never raises."""
+    try:
+        if not isinstance(record, Mapping):
+            return False
+        entry = sanitize({**record, "type": "outcome"})
+        directory = _directory(memory_dir)
+        _append(directory / DECISIONS_FILE, _jsonl([entry]))
+        pnl, pct = entry.get("pnl"), entry.get("pnl_pct")
+        lines = [f"### Outcome | {safe_inline(entry.get('timestamp') or _now())} | run "
+                 f"{safe_inline(entry.get('run_id'))} | {safe_inline(entry.get('symbol'))} "
+                 f"({safe_inline(entry.get('account'))})", "",
+                 f"- P/L: {_cell(pnl)} ({_cell(pct)}%), qty {_cell(entry.get('qty'))}, "
+                 f"entry {_cell(entry.get('entry_price'))}, exit {_cell(entry.get('exit_price'))}, "
+                 f"days held {_cell(entry.get('days_held'))}, prices: {_cell(entry.get('price_basis'))}",
+                 f"- Reflection ({_cell(entry.get('status'))}, {_cell(entry.get('model'))}): "
+                 f"{_cell(entry.get('assessment'))} | {_cell(entry.get('lesson'))}"]
+        _append(directory / JOURNAL_FILE, "\n".join(lines) + "\n\n", "# Trade journal\n\n")
+        return True
+    except Exception as exc:
+        _warn(f"{type(exc).__name__}: {exc}")
+        return False
+
+
 def read_decisions(memory_dir=None) -> list:
     """All parseable lines of decisions.jsonl (bad lines are skipped). Never raises."""
     try:

@@ -18,9 +18,16 @@
 #   submit           None | "alpaca_paper"   None = dry-run (default). "alpaca_paper" = send the approved
 #                    orders to the Alpaca PAPER account; needs approval to be an explicit list of symbols
 #                    ("all" is refused) and ALPACA_ORDERS_ENABLED=true in the real environment.
+#   reflect          bool                 after the cycle, run the Reflection agent on closed trades not yet
+#                    reflected (opt-in, default False; needs GROQ_API_KEY; no closed trade = no LLM call).
+#                    Advisory only: it writes lessons.md, "outcome" lines and an agentReflection file.
+#                    Live paper trades count only once Alpaca confirms the fill (needs BROKER_MODE=alpaca_paper).
+#   reflect_dry_run  bool                 also count DRY-RUN trades (they have no fills; limit prices are
+#                    used). Needs reflect=True. Default False.
 #   env              {NAME: value}        temporary environment overrides for this cycle only
 #                    (e.g. keys typed into a UI). Restored afterwards, never logged or returned.
 
+import argparse
 import asyncio
 import contextlib
 import os
@@ -88,9 +95,29 @@ def _validate(config) -> dict:
         raise CycleConfigError(
             "live paper orders need approval to be an explicit, non-empty list of symbols "
             "('all' and None are refused).")
+    reflect, reflect_dry_run = bool(config.get("reflect")), bool(config.get("reflect_dry_run"))
+    if reflect_dry_run and not reflect:
+        raise CycleConfigError("reflect_dry_run needs reflect to be true.")
     return {"symbols": [s.strip().upper() for s in symbols], "timeframe": timeframe,
             "lookback_days": lookback, "advisory": bool(config.get("advisory")),
-            "debate_band": band, "approval": approval, "submit": submit, "env": config.get("env")}
+            "debate_band": band, "approval": approval, "submit": submit, "env": config.get("env"),
+            "reflect": reflect, "reflect_dry_run": reflect_dry_run}
+
+
+def _reflect_step(cfg: dict, result: dict) -> dict:
+    """Reflection on closed trades (G7). Advisory only; never raises and never changes the cycle."""
+    try:
+        from trading_system.crew import reflection
+        with _temporary_env(cfg["env"]):
+            live = (os.environ.get("BROKER_MODE") or "offline").strip().lower() == "alpaca_paper"
+            return reflection.reflect(
+                run_id=result.get("run_id"), timestamp=datetime.now(timezone.utc).isoformat(),
+                symbols=cfg["symbols"], timeframe=result.get("timeframe"),
+                include_dry_run=cfg["reflect_dry_run"],
+                fill_lookup=reflection.alpaca_fill_lookup if live else None)
+    except Exception as exc:
+        return {"status": "unavailable", "closed_trades": 0, "reflections": [], "agent_file": None,
+                "warnings": [f"Reflection unavailable ({type(exc).__name__})."]}
 
 
 def _journal_live_orders(result: dict, placed: list) -> list:
@@ -173,6 +200,8 @@ async def run_cycle(config: dict) -> dict:
         except Exception:
             pass  # the audit trail must never change the cycle
 
+    reflections = _reflect_step(cfg, result) if cfg["reflect"] else None
+
     return {
         "status": status,
         "run_id": result.get("run_id"),
@@ -197,6 +226,9 @@ async def run_cycle(config: dict) -> dict:
         "order_journal_paths": journal_paths,
         "report_path": result.get("report_path"),
         "journal_path": result.get("journal_path"),
+        "agent_report_paths": result.get("agent_report_paths"),
+        "journal_files": result.get("journal_files"),
+        "reflections": reflections,
     }
 
 
@@ -204,7 +236,20 @@ def run_cycle_sync(config: dict) -> dict:
     return asyncio.run(run_cycle(config))
 
 
+def _parse_cli(argv=None) -> dict:
+    parser = argparse.ArgumentParser(
+        description="Run one paper-trading cycle (dry-run, nothing is sent to a broker).")
+    parser.add_argument("symbols", nargs="*", default=["AAPL"], help="watch-list (default: AAPL)")
+    parser.add_argument("--advisory", action="store_true", help="run the M7 Bull/Bear/Judge debate")
+    parser.add_argument("--reflect", action="store_true",
+                        help="reflect on closed trades (confirmed live fills only)")
+    parser.add_argument("--reflect-dry-run", action="store_true",
+                        help="also reflect on dry-run trades (implies --reflect)")
+    args = parser.parse_args(argv)
+    return {"symbols": args.symbols, "advisory": args.advisory,
+            "reflect": args.reflect or args.reflect_dry_run, "reflect_dry_run": args.reflect_dry_run}
+
+
 if __name__ == "__main__":
     import json
-    import sys
-    print(json.dumps(run_cycle_sync({"symbols": sys.argv[1:] or ["AAPL"]}), indent=2, default=str))
+    print(json.dumps(run_cycle_sync(_parse_cli()), indent=2, default=str))
