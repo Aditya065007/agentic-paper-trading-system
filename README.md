@@ -214,13 +214,29 @@ guardian-approved orders saved from that run; it does **not** rerun the pipeline
 after 15 minutes and are one-use.
 
 **Default is dry-run only.** The Approve button records dry-run placements and sends no broker orders.
-Live Alpaca PAPER submission requires all three conditions: start the server with
-`PAPER_WEB_LIVE_MODE=true`, set the existing `ALPACA_ORDERS_ENABLED=true` gate in the launch environment,
-and set `BROKER_MODE=alpaca_paper`. For example, from the repository root:
+To place Alpaca PAPER orders, start the dashboard with the `--live` flag, typed in the terminal:
 
 ```bash
-ALPACA_ORDERS_ENABLED=true BROKER_MODE=alpaca_paper PAPER_WEB_LIVE_MODE=true python -m trading_system.web.server
+python -m trading_system.web.server --live          # Approve places paper orders (add --port 9001 to change the port)
 ```
+
+`--live` sets the order gate (`ALPACA_ORDERS_ENABLED`) and `BROKER_MODE=alpaca_paper` for that process only. The
+older form still works and does the same: `ALPACA_ORDERS_ENABLED=true BROKER_MODE=alpaca_paper
+PAPER_WEB_LIVE_MODE=true python -m trading_system.web.server`. Neither can be switched on from the page, and a
+value in `.env` can never turn live mode on. The bar under the page title always shows **LIVE PAPER** or
+**DRY RUN** and the paper account (masked number and equity) the keys open.
+
+**Rotating keys: whoever is using the computer.** Each of us runs the dashboard on our own computer. On the
+**API keys** page, enter your name and your own Alpaca paper key and secret, Groq key and NewsAPI key, then press
+**Save and verify**: the keys are written to this computer's `.env` (owner-only file) and to the running process,
+so the next run uses them without a restart, and the page shows which paper account they open. **Sign out and
+clear keys** removes your name and all four keys from this computer, so the next person can enter theirs. Keys
+cannot be changed while a run or an approval is in progress, and an analysis that was run with one Alpaca
+account cannot be approved after the keys were changed to another: run it again. Secrets are never shown in
+full, never saved in the run history and never returned by the server.
+
+Approve in live mode also needs the broker module's own checks (explicit symbol list, host, buying power,
+duplicates). It writes the same trade journal the command line writes, so `--reflect` sees these orders.
 
 Only use Alpaca paper credentials. The dashboard cannot edit `ALPACA_ORDERS_ENABLED`,
 `ALPACA_STOPS_ENABLED`, or `ALPACA_TRADING_URL`; it cannot enable protective stops. The existing

@@ -4,7 +4,7 @@ Start with: python -m trading_system.web.server
 Live submission requires PAPER_WEB_LIVE_MODE=true at process launch plus the existing
 ALPACA_ORDERS_ENABLED=true and BROKER_MODE=alpaca_paper gates. The UI cannot set order gates.
 """
-import hmac, os, re, secrets, threading, time, uuid
+import argparse, asyncio, hmac, os, re, secrets, threading, time, uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +52,8 @@ def _safe(value):
     return str(value)[:1000]
 
 def _public(record):
-    return _safe({k: v for k, v in record.items() if k not in {"secret_env", "raw_exception"}})
+    return _safe({k: v for k, v in record.items()
+                  if k not in {"secret_env", "raw_exception", "key_fingerprint"}})
 
 def _host_ok(request):
     return request.headers.get("host", "").lower() in {
@@ -92,11 +93,15 @@ def _run_job(run_id, config):
     try:
         with _RUN_LOCK:
             from trading_system.crew.run_cycle import run_cycle_sync
+            # Taken under the lock, so it names exactly the keys this run used (keys cannot change mid-run).
+            fingerprint = keys.fingerprint()
+            trader = keys.public_settings().get("TRADER_NAME", "")
             result = run_cycle_sync(config)
         record = store.get_run(run_id) or record
         record.update({"status": "completed", "finished_at": _now(), "result": _safe(result),
                        "approval_expires_at": time.time() + SNAPSHOT_TTL,
                        "approved_orders": _safe(result.get("approved") or []),
+                       "key_fingerprint": fingerprint, "trader": trader, "live_mode": LIVE_MODE,
                        "pipeline_status": result.get("status")})
         store.save_run(record)
     except Exception as exc:
@@ -123,9 +128,12 @@ def _presets():
         return {"starter": starter, "full": starter}
 
 async def status(request):
+    broker = os.environ.get("BROKER_MODE", "offline").strip().lower()
     return JSONResponse({"ok": True, "live_mode": LIVE_MODE,
-        "orders_gate_open": LAUNCH_ORDERS_GATE,
-        "broker_mode": os.environ.get("BROKER_MODE", "offline").strip().lower(),
+        "orders_gate_open": LAUNCH_ORDERS_GATE, "stops_gate_open": LAUNCH_STOPS_GATE,
+        "can_place_live": bool(LIVE_MODE and LAUNCH_ORDERS_GATE and broker == "alpaca_paper"),
+        "broker_mode": broker, "broker_locked": LIVE_MODE,
+        "trader": keys.public_settings().get("TRADER_NAME", ""),
         "keys": keys.public_settings(), "max_symbols": MAX_SYMBOLS, "snapshot_ttl_seconds": SNAPSHOT_TTL,
         "presets": _presets()})
 
@@ -172,6 +180,9 @@ def _claim_approval(run_id, body):
             return None, JSONResponse({"error": "Explicit confirmation is required."}, status_code=400)
         if record.get("status") != "completed" or record.get("pipeline_status") != "awaiting_approval":
             return None, JSONResponse({"error": "This run has no pending approval."}, status_code=409)
+        if record.get("key_fingerprint", "") != keys.fingerprint():
+            return None, JSONResponse({"error": "The Alpaca keys changed after this analysis was run. Run the "
+                                                "analysis again with the account you are using now."}, status_code=409)
         expiry = record.get("approval_expires_at", 0)
         if not isinstance(expiry, (int, float)) or time.time() > expiry:
             return None, JSONResponse({"error": "Approval snapshot expired. Run the pipeline again."}, status_code=410)
@@ -186,54 +197,103 @@ def _claim_approval(run_id, body):
         store.save_run(record)
         return (record, symbols, orders), None
 
+def _journal(result, placed, mode):
+    """Same audit trail the command line writes after placing orders. Never raises."""
+    live = mode == "alpaca_paper"
+    run_id, timeframe = (result or {}).get("run_id"), (result or {}).get("timeframe")
+    if live:
+        try:
+            from trading_system.crew.run_cycle import _journal_live_orders
+            _journal_live_orders({"run_id": run_id, "timeframe": timeframe}, placed)
+        except Exception: pass
+    try:
+        from trading_system.crew import journal
+        journal.append_order_results(run_id, timeframe, placed, live=live)
+    except Exception: pass
+
+def _place(orders, symbols, record):
+    """Blocking (runs in a worker thread): send the saved orders, return (placed, mode)."""
+    if LIVE_MODE:
+        if not LAUNCH_ORDERS_GATE:
+            raise PermissionError("Live mode requires ALPACA_ORDERS_ENABLED=true at launch.")
+        if os.environ.get("BROKER_MODE", "").strip().lower() != "alpaca_paper":
+            raise PermissionError("Live mode requires BROKER_MODE=alpaca_paper.")
+        from trading_system.servers.tools import live_orders
+        placed, mode = live_orders.submit_orders(orders, only_symbols=symbols), "alpaca_paper"
+    else:
+        from trading_system.crew import guarded_plan
+        placed, mode = guarded_plan.place_approved(orders, only_symbols=symbols), "dry_run"
+    _journal(record.get("result") or {}, placed, mode)
+    return placed, mode
+
+def _busy():
+    return JSONResponse({"error": "A pipeline run or approval is in progress. Wait for it to finish and try again."},
+                        status_code=409)
+
 async def approve_run(request):
     try: body = await request.json()
-    except Exception: return JSONResponse({"error": "Request body must be valid JSON."}, status_code=400)
-    claimed, error = _claim_approval(request.path_params["run_id"], body)
-    if error: return error
-    record, symbols, orders = claimed
+    except Exception: body = None
+    if not isinstance(body, dict): return JSONResponse({"error": "Request body must be valid JSON."}, status_code=400)
+    # Never block the event loop: if a run holds the lock, say so instead of freezing the page.
+    if not _RUN_LOCK.acquire(blocking=False): return _busy()
     try:
-        if LIVE_MODE:
-            if not LAUNCH_ORDERS_GATE:
-                raise PermissionError("Live mode requires ALPACA_ORDERS_ENABLED=true at launch.")
-            if os.environ.get("BROKER_MODE", "").strip().lower() != "alpaca_paper":
-                raise PermissionError("Live mode requires BROKER_MODE=alpaca_paper.")
+        claimed, error = _claim_approval(request.path_params["run_id"], body)
+        if error: return error
+        record, symbols, orders = claimed
+        try:
             from trading_system.servers.tools import live_orders
-            with _RUN_LOCK: placed = live_orders.submit_orders(orders, only_symbols=symbols)
-            try:
-                from trading_system.crew.run_cycle import _journal_live_orders
-                _journal_live_orders({"run_id": record.get("result", {}).get("run_id"),
-                                      "timeframe": record.get("result", {}).get("timeframe")}, placed)
-            except Exception: pass
-            mode = "alpaca_paper"
-        else:
-            from trading_system.crew import guarded_plan
-            placed = guarded_plan.place_approved(orders, only_symbols=symbols)
-            mode = "dry_run"
-        record.update({"status": "approved", "approval_mode": mode, "placement": _safe(placed),
-                       "approved_at": _now(), "approved_orders": []})
-        store.save_run(record)
-        return JSONResponse({"run": _public(record)})
-    except PermissionError as exc:
-        record.update({"status": "completed", "approved_symbols": []}); store.save_run(record)
-        return JSONResponse({"error": str(exc)}, status_code=403)
-    except Exception as exc:
-        record.update({"status": "approval_error", "error": "Approval failed (" + type(exc).__name__ +
-                       "). Check Alpaca paper dashboard before retrying."}); store.save_run(record)
-        return JSONResponse({"error": record["error"]}, status_code=502)
+            blocked_type = live_orders.OrderSubmissionBlocked
+        except Exception:
+            blocked_type = PermissionError
+        try:
+            placed, mode = await asyncio.to_thread(_place, orders, symbols, record)
+            record.update({"status": "approved", "approval_mode": mode, "placement": _safe(placed),
+                           "approved_at": _now(), "approved_orders": []})
+            store.save_run(record)
+            return JSONResponse({"run": _public(record)})
+        except (PermissionError, blocked_type) as exc:
+            record.update({"status": "completed", "approved_symbols": []}); store.save_run(record)
+            return JSONResponse({"error": _safe(str(exc))}, status_code=403)
+        except Exception as exc:
+            record.update({"status": "approval_error", "error": "Approval failed (" + type(exc).__name__ +
+                           "). Check the Alpaca paper dashboard before retrying."}); store.save_run(record)
+            return JSONResponse({"error": record["error"]}, status_code=502)
+    finally:
+        _RUN_LOCK.release()
 
 async def save_keys(request):
     try:
         body = await request.json()
-        with _RUN_LOCK:
-            saved = keys.save_settings(body.get("values", {}))
-        return JSONResponse({"keys": saved})
+        values = body.get("values", {}) if isinstance(body, dict) else None
+    except Exception:
+        return JSONResponse({"error": "Request body must be valid JSON."}, status_code=400)
+    if LIVE_MODE and isinstance(values, dict) and values.get("BROKER_MODE", "alpaca_paper") != "alpaca_paper":
+        return JSONResponse({"error": "Broker mode is locked to Alpaca paper while the dashboard is in live mode."},
+                            status_code=400)
+    if not _RUN_LOCK.acquire(blocking=False): return _busy()
+    try:
+        saved = await asyncio.to_thread(keys.save_settings, values)
+        return JSONResponse({"keys": saved, "trader": saved.get("TRADER_NAME", "")})
     except ValueError as exc: return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception: return JSONResponse({"error": "Could not save local settings."}, status_code=500)
+    finally: _RUN_LOCK.release()
+
+async def clear_keys(request):
+    """Sign out: remove this person's keys and name from this computer's .env and from the running process."""
+    if not _RUN_LOCK.acquire(blocking=False): return _busy()
+    try:
+        saved = await asyncio.to_thread(keys.clear_local)
+        return JSONResponse({"keys": saved, "trader": ""})
+    except Exception: return JSONResponse({"error": "Could not clear local settings."}, status_code=500)
+    finally: _RUN_LOCK.release()
 
 async def test_key(request):
-    try: return JSONResponse(keys.test_connection((await request.json()).get("provider", "")))
+    try: return JSONResponse(await asyncio.to_thread(keys.test_connection, (await request.json()).get("provider", "")))
     except Exception: return JSONResponse({"ok": False, "message": "Connection test failed."}, status_code=400)
+
+async def account(request):
+    """Which Alpaca paper account the current keys open (masked number, equity). Read-only."""
+    return JSONResponse(await asyncio.to_thread(keys.account_info))
 
 app = Starlette(debug=False, middleware=[Middleware(BaseHTTPMiddleware, dispatch=_guard)], routes=[
     Route("/", home, methods=["GET"]),
@@ -243,15 +303,39 @@ app = Starlette(debug=False, middleware=[Middleware(BaseHTTPMiddleware, dispatch
     Route("/api/runs/{run_id}", get_run, methods=["GET"]),
     Route("/api/runs/{run_id}/approve", approve_run, methods=["POST"]),
     Route("/api/keys", save_keys, methods=["POST"]),
+    Route("/api/keys/clear", clear_keys, methods=["POST"]),
     Route("/api/keys/test", test_key, methods=["POST"]),
+    Route("/api/account", account, methods=["GET"]),
 ])
 
-def main():
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Local paper-trading dashboard (127.0.0.1 only).")
+    parser.add_argument("--live", action="store_true",
+                        help="allow the Approve button to place Alpaca PAPER orders (sets the order gate and "
+                             "BROKER_MODE=alpaca_paper for this process only; typed here, never from the page)")
+    parser.add_argument("--port", type=int, default=None, help="port (default 8765 or PAPER_WEB_PORT)")
+    return parser.parse_args(argv)
+
+def apply_launch_flags(args):
+    """Terminal-only switches. The page has no way to call this."""
+    global LIVE_MODE, LAUNCH_ORDERS_GATE, PORT
+    if args.port:
+        PORT = args.port
+    if args.live:
+        LIVE_MODE, LAUNCH_ORDERS_GATE = True, True
+        os.environ["ALPACA_ORDERS_ENABLED"] = "true"
+        os.environ["BROKER_MODE"] = "alpaca_paper"
+
+def main(argv=None):
+    apply_launch_flags(_parse_args(argv))
     if not STATIC_DIR.joinpath("index.html").is_file(): raise SystemExit("Dashboard static/index.html is missing.")
     url = "http://127.0.0.1:" + str(PORT) + "/?token=" + LAUNCH_TOKEN
     print("\nLocal paper-trading dashboard\nOpen this exact URL in your browser:\n  " + url)
-    print("Live paper submission mode: " + ("ON" if LIVE_MODE else "OFF (dry-run only)"))
-    if LIVE_MODE: print("Requires ALPACA_ORDERS_ENABLED=true and BROKER_MODE=alpaca_paper in the launch environment.")
+    if LIVE_MODE:
+        print("LIVE PAPER MODE: Approve will send orders to the Alpaca PAPER account of the keys saved on the Keys page.")
+        if not LAUNCH_ORDERS_GATE: print("  (order gate is closed: ALPACA_ORDERS_ENABLED is not true, so Approve will be refused)")
+    else:
+        print("Dry-run mode: Approve records a dry run and sends nothing. Start with --live to place paper orders.")
     print("Listening only on 127.0.0.1. Keep this terminal open; Ctrl+C stops the dashboard.\n")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning", access_log=False)
 

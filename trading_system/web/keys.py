@@ -1,12 +1,13 @@
 """Local credential settings. Order gates and broker URL cannot be changed here."""
-import os, re, tempfile
+import hashlib, os, re, tempfile
 from pathlib import Path
 import requests
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-EDITABLE = {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "GROQ_API_KEY", "NEWSAPI_KEY", "BROKER_MODE"}
+EDITABLE = {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "GROQ_API_KEY", "NEWSAPI_KEY", "BROKER_MODE", "TRADER_NAME"}
 SECRET_KEYS = {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "GROQ_API_KEY", "NEWSAPI_KEY"}
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+NAME_PATTERN = re.compile(r"^[A-Za-z0-9 ._'-]{0,40}$")
 
 def _read_env_lines():
     try: return ENV_PATH.read_text(encoding="utf-8").splitlines()
@@ -24,6 +25,8 @@ def save_settings(values):
         if any(c in value for c in ("\n", "\r", "\x00")): raise ValueError(name + " contains an invalid character.")
         if name == "BROKER_MODE" and value not in {"offline", "alpaca_paper"}:
             raise ValueError("BROKER_MODE must be offline or alpaca_paper.")
+        if name == "TRADER_NAME" and not NAME_PATTERN.fullmatch(value):
+            raise ValueError("Name: up to 40 letters, digits, spaces, . _ ' -")
         if name in SECRET_KEYS and value and (len(value) > 500 or value.startswith("http")):
             raise ValueError(name + " does not look like a valid key value.")
         normalized[name] = value
@@ -65,17 +68,44 @@ def public_settings():
             result[name] = value or ("offline" if name == "BROKER_MODE" else "")
     return result
 
+def clear_local():
+    """Sign out: blank every secret and the name, in .env and in this process."""
+    return save_settings({name: "" for name in sorted(SECRET_KEYS | {"TRADER_NAME"})})
+
+def fingerprint():
+    """A short hash naming the Alpaca key pair in use ("" if none). Lets the server refuse to place orders that
+    were sized for a different account than the one the keys open now. Never shown; not reversible."""
+    key, secret = os.environ.get("ALPACA_API_KEY", "").strip(), os.environ.get("ALPACA_SECRET_KEY", "").strip()
+    if not key and not secret:
+        return ""
+    return hashlib.sha256(("alpaca|" + key + "|" + secret).encode("utf-8")).hexdigest()[:16]
+
+def account_info(http=requests):
+    """Read-only: which Alpaca PAPER account do the saved keys open. Never returns the keys or raw bodies."""
+    key, secret = os.environ.get("ALPACA_API_KEY", ""), os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        return {"ok": False, "message": "Add both Alpaca paper keys first."}
+    try:
+        r = http.get("https://paper-api.alpaca.markets/v2/account",
+                     headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}, timeout=8)
+        if r.status_code in (401, 403):
+            return {"ok": False, "message": "Alpaca rejected these keys. Check that they are PAPER keys."}
+        if r.status_code != 200:
+            return {"ok": False, "message": "Alpaca returned HTTP " + str(r.status_code) + "."}
+        body = r.json()
+        number = str(body.get("account_number") or "")
+        return {"ok": True, "message": "Alpaca paper account connected.",
+                "account": {"number": ("\u2022\u2022\u2022\u2022" + number[-4:]) if number else "",
+                            "status": body.get("status"), "equity": body.get("equity"),
+                            "buying_power": body.get("buying_power"), "cash": body.get("cash")}}
+    except (requests.RequestException, ValueError):
+        return {"ok": False, "message": "Connection failed or timed out. Check internet access."}
+
 def test_connection(provider):
     """Never return response bodies, keys, or exception messages."""
     try:
         if provider == "alpaca":
-            key, secret = os.environ.get("ALPACA_API_KEY", ""), os.environ.get("ALPACA_SECRET_KEY", "")
-            if not key or not secret: return {"ok": False, "message": "Add both Alpaca paper keys first."}
-            r = requests.get("https://paper-api.alpaca.markets/v2/account",
-                headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}, timeout=8)
-            ok = r.status_code == 200
-            return {"ok": ok, "message": "Alpaca paper connection successful." if ok else
-                    "Alpaca returned HTTP " + str(r.status_code) + "; check paper keys."}
+            return account_info()
         if provider == "groq":
             key = os.environ.get("GROQ_API_KEY", "")
             if not key: return {"ok": False, "message": "Add a Groq API key first."}

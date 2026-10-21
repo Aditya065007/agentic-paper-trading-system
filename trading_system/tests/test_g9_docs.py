@@ -199,4 +199,4 @@ def test_design_decisions_are_numbered_once_each_and_in_order():
     numbers = [int(n) for n in re.findall(r"^(\d+)\. \*\*", DECISIONS, flags=re.M)]
     tail = numbers[numbers.index(1):] if 1 in numbers else numbers
     assert len(set(tail)) == len(tail)
-    assert tail[-4:] == [75, 76, 77, 78]
+    assert tail == sorted(tail) and tail[tail.index(75):tail.index(75) + 4] == [75, 76, 77, 78]
