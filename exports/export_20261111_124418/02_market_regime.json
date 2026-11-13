@@ -1,0 +1,9 @@
+{
+  "spy_trend": "down",
+  "spy_vol": 0.2185,
+  "breadth_pct": 75.0,
+  "risk_mode": "neutral",
+  "timeframe": "1Day",
+  "warnings": [],
+  "block_new_buys_in_risk_off": false
+}

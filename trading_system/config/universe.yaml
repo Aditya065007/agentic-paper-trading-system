@@ -26,6 +26,19 @@ sectors:
   WMT: Consumer Staples
   CAT: Industrials
   SPY: Index
+  COP: Energy
+  SLB: Energy
+  PFE: Health Care
+  COIN: Financials
+  HOOD: Financials
+  CCL: Consumer Discretionary
+  HD: Consumer Discretionary
+  UNP: Industrials
+  UAL: Industrials
+  SMCI: Technology
+  MU: Technology
+  TMUS: Communication
+  NEE: Utilities
 
 sleeves:
   NVDA: high_beta
@@ -34,3 +47,9 @@ sleeves:
   META: high_beta
   AMZN: high_beta
   BAC: high_beta
+  COIN: high_beta
+  CCL: high_beta
+  UAL: high_beta
+  SMCI: high_beta
+  MU: high_beta
+  HOOD: high_beta

@@ -1,0 +1,227 @@
+{
+  "id": "01af1f75-5e5c-4005-b3b1-2734dbeb6cec",
+  "created_at": "2026-11-11T07:10:58.850647+00:00",
+  "status": "completed",
+  "config": {
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "JPM"
+    ],
+    "timeframe": "1Day",
+    "advisory": true,
+    "lookback_days": 180
+  },
+  "approved_orders": [],
+  "started_at": "2026-11-11T07:10:59.125606+00:00",
+  "finished_at": "2026-11-11T07:12:13.010335+00:00",
+  "result": {
+    "status": "no_orders",
+    "run_id": "run-20261111T071105-8c21af2569",
+    "degraded": false,
+    "timeframe": "1Day",
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "JPM"
+    ],
+    "decisions": [
+      {
+        "symbol": "AAPL",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=0.2700.",
+        "held": false,
+        "latest_close": 348.49,
+        "as_of": "2026-11-10T05:00:00+00:00",
+        "composite": 0.26996404756547765,
+        "triage": "hold",
+        "regime": "ranging",
+        "regime_strength": 0.0,
+        "adx": 17.921952323202525,
+        "atr": 8.351576343895346,
+        "sub_scores": {
+          "trend": 0.7015267181697604,
+          "momentum": 0.10438420689240802,
+          "volume": -0.3533419645482427,
+          "mean_reversion": 0.5308476741053417,
+          "breakout_rs": 0.38359651256786265,
+          "news": 0.029765
+        },
+        "missing_indicators": [
+          "bb_squeeze"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "MSFT",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=0.1512.",
+        "held": false,
+        "latest_close": 533.18,
+        "as_of": "2026-11-10T05:00:00+00:00",
+        "composite": 0.15117855043358636,
+        "triage": "hold",
+        "regime": "ranging",
+        "regime_strength": 0.0,
+        "adx": 18.353009093289472,
+        "atr": 15.667304273513981,
+        "sub_scores": {
+          "trend": 0.5774162540538033,
+          "momentum": 0.0006747911489246907,
+          "volume": -0.2883224111911759,
+          "mean_reversion": 0.2688859528800878,
+          "breakout_rs": 0.40988019467827197,
+          "news": -0.092937
+        },
+        "missing_indicators": [
+          "bb_squeeze"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "NVDA",
+        "decision": "HOLD",
+        "reason": "Long-only policy: cannot sell a symbol that is not held.",
+        "held": false,
+        "latest_close": 168.785,
+        "as_of": "2026-11-10T05:00:00+00:00",
+        "composite": -0.5860273084295451,
+        "triage": "clear_sell",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 34.6744305478972,
+        "atr": 8.672310157229559,
+        "sub_scores": {
+          "trend": -0.9103030347182962,
+          "momentum": -0.7023184978230418,
+          "volume": -0.1700062596088728,
+          "mean_reversion": -0.9407703524673732,
+          "breakout_rs": -0.428013704993782,
+          "news": -0.376301
+        },
+        "missing_indicators": [
+          "bb_squeeze"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "JPM",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=0.1105.",
+        "held": false,
+        "latest_close": 342.03,
+        "as_of": "2026-11-10T05:00:00+00:00",
+        "composite": 0.11054519821635654,
+        "triage": "hold",
+        "regime": "ranging",
+        "regime_strength": 0.0,
+        "adx": 16.789843478475742,
+        "atr": 7.497249749342834,
+        "sub_scores": {
+          "trend": 0.4627824274292229,
+          "momentum": -0.04618895095177002,
+          "volume": -0.3584119138586122,
+          "mean_reversion": 0.21506096384159423,
+          "breakout_rs": 0.3737257467105218,
+          "news": -0.000486
+        },
+        "missing_indicators": [
+          "bb_squeeze"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      }
+    ],
+    "regime": {
+      "spy_trend": "down",
+      "spy_vol": 0.2185,
+      "breadth_pct": 75.0,
+      "risk_mode": "neutral",
+      "timeframe": "1Day",
+      "warnings": [],
+      "block_new_buys_in_risk_off": false
+    },
+    "plan": [
+      {
+        "symbol": "AAPL",
+        "decision": "HOLD",
+        "latest_close": 348.49,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 11836.69,
+        "cash_reserve": 9863.91
+      },
+      {
+        "symbol": "MSFT",
+        "decision": "HOLD",
+        "latest_close": 533.18,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 11836.69,
+        "cash_reserve": 9863.91
+      },
+      {
+        "symbol": "NVDA",
+        "decision": "HOLD",
+        "latest_close": 168.785,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 11836.69,
+        "cash_reserve": 9863.91
+      },
+      {
+        "symbol": "JPM",
+        "decision": "HOLD",
+        "latest_close": 342.03,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 11836.69,
+        "cash_reserve": 9863.91
+      }
+    ],
+    "proposals": [],
+    "approved": [],
+    "blocked": [],
+    "skipped": [],
+    "warnings": [],
+    "approval": "not_needed",
+    "broker_mode": "alpaca_paper",
+    "broker_error": null,
+    "placed": [],
+    "submission": "dry_run",
+    "submission_error": null,
+    "dry_run": true,
+    "order_journal_paths": [],
+    "report_path": "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111T0711056104990000_run-20261111T071105-8c21af2569_run.md",
+    "journal_path": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/20261111T0711056104990000_run-20261111T071105-8c21af2569_multi_M8_orchestrator.md",
+    "agent_report_paths": [
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111/agentData_11112026-02-11_1D.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111/agentScoring_11112026-02-11_1D.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111/agentNews_11112026-02-11_1D.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111/agentRegime_11112026-02-11_1D.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261111/agentRisk_11112026-02-11_1D.md"
+    ],
+    "journal_files": {
+      "decisions_log": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/decisions.jsonl",
+      "trade_journal": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/trade_journal.md"
+    },
+    "reflections": null,
+    "timeframe_mode": null,
+    "hourly_vetoed": null,
+    "hourly_warnings": null,
+    "hourly_run_id": null
+  },
+  "approval_expires_at": 1794382033.0107746,
+  "trader": "Aditya",
+  "live_mode": true,
+  "pipeline_status": "no_orders"
+}

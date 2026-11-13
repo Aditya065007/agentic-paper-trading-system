@@ -1,0 +1,6 @@
+- CCL: Trimmed to the position cap.
+- KO: Trimmed to the position cap.
+- UNP: Trimmed to the position cap.
+- earnings_blackout unchecked: earnings_dates was not supplied.
+- sector unknown for CCL; counted in an UNKNOWN bucket.
+- sector unknown for UNP; counted in an UNKNOWN bucket.

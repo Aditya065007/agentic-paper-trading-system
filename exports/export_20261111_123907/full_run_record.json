@@ -1,0 +1,510 @@
+{
+  "id": "9eff8012-a4ea-45f3-9028-1dc5e7f091c3",
+  "created_at": "2026-11-02T16:08:27.238620+00:00",
+  "status": "completed",
+  "config": {
+    "symbols": [
+      "NVDA",
+      "COIN",
+      "CCL",
+      "MSFT",
+      "BAC",
+      "COP",
+      "SLB",
+      "PFE",
+      "KO",
+      "UNP"
+    ],
+    "timeframe": "1Hour",
+    "advisory": false,
+    "lookback_days": 30
+  },
+  "approved_orders": [],
+  "started_at": "2026-11-02T16:08:27.493438+00:00",
+  "finished_at": "2026-11-02T16:09:02.013540+00:00",
+  "result": {
+    "status": "no_orders",
+    "run_id": "run-20261102T160827-fe1ba66c76",
+    "degraded": true,
+    "timeframe": "1Hour",
+    "symbols": [
+      "NVDA",
+      "COIN",
+      "CCL",
+      "MSFT",
+      "BAC",
+      "COP",
+      "SLB",
+      "PFE",
+      "KO",
+      "UNP"
+    ],
+    "decisions": [
+      {
+        "symbol": "NVDA",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=-0.2159.",
+        "held": false,
+        "latest_close": 207.25,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": -0.21594040374272724,
+        "triage": "hold",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 34.00445603259959,
+        "atr": 2.267291796991385,
+        "sub_scores": {
+          "trend": -0.7235169025212048,
+          "momentum": 0.14855413743480497,
+          "volume": -0.3670041952064255,
+          "mean_reversion": -0.13345585072080027,
+          "breakout_rs": -0.12247587262534772,
+          "news": 0.262453
+        },
+        "missing_indicators": [],
+        "warnings": []
+      },
+      {
+        "symbol": "COIN",
+        "decision": "HOLD",
+        "reason": "borderline, awaiting M7 debate",
+        "held": false,
+        "latest_close": 139.95,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": -0.44956406256681264,
+        "triage": "borderline",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 44.28008279370891,
+        "atr": 3.5902806328389123,
+        "sub_scores": {
+          "trend": -0.9160525776520562,
+          "momentum": -0.274943890220272,
+          "volume": -0.0826621499438986,
+          "mean_reversion": -0.39986921349942023,
+          "breakout_rs": -0.3537868537372373,
+          "news": -0.228658
+        },
+        "missing_indicators": [
+          "cmf20"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "CCL",
+        "decision": "BUY",
+        "reason": "M2-B deterministic BUY; composite=0.4680.",
+        "held": false,
+        "latest_close": 30.29,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": 0.4680016423660756,
+        "triage": "clear_buy",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 40.62551877205384,
+        "atr": 0.3461988720197185,
+        "sub_scores": {
+          "trend": 0.9752796770917319,
+          "momentum": 0.5037917174379348,
+          "volume": -0.14107218122655885,
+          "mean_reversion": 0.9179476683143417,
+          "breakout_rs": 0.578741930128239,
+          "news": -0.245923
+        },
+        "missing_indicators": [],
+        "warnings": []
+      },
+      {
+        "symbol": "MSFT",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=0.0172.",
+        "held": false,
+        "latest_close": 525.505,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": 0.017155191091285563,
+        "triage": "hold",
+        "regime": "ranging",
+        "regime_strength": 0.0,
+        "adx": 16.01636709685269,
+        "atr": 4.96502533702779,
+        "sub_scores": {
+          "trend": -0.3725990866133959,
+          "momentum": 0.16515469948829284,
+          "volume": -0.41407269787344353,
+          "mean_reversion": 0.10975816619427073,
+          "breakout_rs": 0.33532303982786327,
+          "news": 0.29282
+        },
+        "missing_indicators": [],
+        "warnings": []
+      },
+      {
+        "symbol": "BAC",
+        "decision": "HOLD",
+        "reason": "borderline, awaiting M7 debate",
+        "held": false,
+        "latest_close": 50.065,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": -0.41181670691087846,
+        "triage": "borderline",
+        "regime": "blend",
+        "regime_strength": 0.7130795136306673,
+        "adx": 23.565397568153337,
+        "atr": 0.33083869920371867,
+        "sub_scores": {
+          "trend": -0.6664619151667114,
+          "momentum": -0.35834352582879375,
+          "volume": -0.2769887745091108,
+          "mean_reversion": -0.40607033030878925,
+          "breakout_rs": -0.3114531309716468,
+          "news": null
+        },
+        "missing_indicators": [
+          "cmf20"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "COP",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=-0.0731.",
+        "held": true,
+        "latest_close": 149.02,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": -0.07311392172407685,
+        "triage": "hold",
+        "regime": "blend",
+        "regime_strength": 0.4526528801903581,
+        "adx": 22.26326440095179,
+        "atr": 1.2889420698531566,
+        "sub_scores": {
+          "trend": -0.1524418197184251,
+          "momentum": -0.04156834222531126,
+          "volume": 0.5600626236208603,
+          "mean_reversion": -0.20039571431747832,
+          "breakout_rs": -0.22981046701492777,
+          "news": -0.340713
+        },
+        "missing_indicators": [
+          "cmf20"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "SLB",
+        "decision": "HOLD",
+        "reason": "M2-B deterministic HOLD; triage=hold, composite=-0.0129.",
+        "held": false,
+        "latest_close": 53.37,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": -0.012855977129039787,
+        "triage": "hold",
+        "regime": "blend",
+        "regime_strength": 0.30042111960298856,
+        "adx": 21.502105598014943,
+        "atr": 0.5485102333252861,
+        "sub_scores": {
+          "trend": 0.5036093361394612,
+          "momentum": -0.23349427333723172,
+          "volume": 0.18718953095080956,
+          "mean_reversion": -0.4700767949513124,
+          "breakout_rs": 0.0609246542155869,
+          "news": null
+        },
+        "missing_indicators": [
+          "cmf20"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      },
+      {
+        "symbol": "PFE",
+        "decision": "HOLD",
+        "reason": "borderline, awaiting M7 debate",
+        "held": true,
+        "latest_close": 30.36,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": 0.3641005556357923,
+        "triage": "borderline",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 25.481780887825543,
+        "atr": 0.2146433484865935,
+        "sub_scores": {
+          "trend": 0.8290727185302376,
+          "momentum": 0.20051727265137656,
+          "volume": -0.2590092058442373,
+          "mean_reversion": 0.3018461163573194,
+          "breakout_rs": 0.2961285150656439,
+          "news": null
+        },
+        "missing_indicators": [],
+        "warnings": []
+      },
+      {
+        "symbol": "KO",
+        "decision": "BUY",
+        "reason": "M2-B deterministic BUY; composite=0.4541.",
+        "held": true,
+        "latest_close": 95.275,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": 0.45414079626412446,
+        "triage": "clear_buy",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 27.564159712013126,
+        "atr": 0.5349075806570379,
+        "sub_scores": {
+          "trend": 0.8566397919973244,
+          "momentum": 0.4153864470740071,
+          "volume": -0.021339187077422845,
+          "mean_reversion": 0.6214605567480124,
+          "breakout_rs": 0.5446817964955902,
+          "news": 0.029981
+        },
+        "missing_indicators": [],
+        "warnings": []
+      },
+      {
+        "symbol": "UNP",
+        "decision": "BUY",
+        "reason": "M2-B deterministic BUY; composite=0.6191.",
+        "held": false,
+        "latest_close": 305.715,
+        "as_of": "2026-11-02T15:00:00+00:00",
+        "composite": 0.619148890345157,
+        "triage": "clear_buy",
+        "regime": "trending",
+        "regime_strength": 1.0,
+        "adx": 33.01652798250493,
+        "atr": 1.7863587400217684,
+        "sub_scores": {
+          "trend": 0.9491406518118811,
+          "momentum": 0.43389801855675386,
+          "volume": 0.4025107001256298,
+          "mean_reversion": 0.8287902625907511,
+          "breakout_rs": 0.3529242626005756,
+          "news": null
+        },
+        "missing_indicators": [
+          "cmf20"
+        ],
+        "warnings": [
+          "Some indicators are unavailable due to insufficient or invalid input data."
+        ]
+      }
+    ],
+    "regime": {
+      "spy_trend": "down",
+      "spy_vol": 0.1505,
+      "breadth_pct": 50.0,
+      "risk_mode": "neutral",
+      "timeframe": "1Hour",
+      "warnings": [],
+      "block_new_buys_in_risk_off": false
+    },
+    "plan": [
+      {
+        "symbol": "NVDA",
+        "decision": "HOLD",
+        "latest_close": 207.25,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "COIN",
+        "decision": "HOLD",
+        "latest_close": 139.95,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "CCL",
+        "decision": "BUY",
+        "latest_close": 30.29,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45,
+        "blocked_by": "sector_cap"
+      },
+      {
+        "symbol": "MSFT",
+        "decision": "HOLD",
+        "latest_close": 525.505,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "BAC",
+        "decision": "HOLD",
+        "latest_close": 50.065,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "COP",
+        "decision": "HOLD",
+        "latest_close": 149.02,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "SLB",
+        "decision": "HOLD",
+        "latest_close": 53.37,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "PFE",
+        "decision": "HOLD",
+        "latest_close": 30.36,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "KO",
+        "decision": "BUY",
+        "latest_close": 95.275,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45
+      },
+      {
+        "symbol": "UNP",
+        "decision": "BUY",
+        "latest_close": 305.715,
+        "planned_value": 0.0,
+        "planned_quantity": 0,
+        "max_position_value": 12114.54,
+        "cash_reserve": 10095.45,
+        "blocked_by": "sector_cap"
+      }
+    ],
+    "proposals": [
+      {
+        "symbol": "CCL",
+        "side": "buy",
+        "qty": 399,
+        "order_type": "limit",
+        "limit_price": 30.35,
+        "stop_price": 29.6,
+        "time_in_force": "day",
+        "reason": "Risk 1% of $100,954 = $1,010; stop at $29.6; so 399 share(s).",
+        "composite": 0.4680016423660756
+      },
+      {
+        "symbol": "UNP",
+        "side": "buy",
+        "qty": 39,
+        "order_type": "limit",
+        "limit_price": 306.33,
+        "stop_price": 302.14,
+        "time_in_force": "day",
+        "reason": "Risk 1% of $100,954 = $1,010; stop at $302.14; so 39 share(s).",
+        "composite": 0.619148890345157
+      }
+    ],
+    "approved": [],
+    "blocked": [
+      {
+        "order": {
+          "symbol": "CCL",
+          "side": "buy",
+          "qty": 399,
+          "order_type": "limit",
+          "limit_price": 30.35,
+          "stop_price": 29.6,
+          "time_in_force": "day",
+          "reason": "Risk 1% of $100,954 = $1,010; stop at $29.6; so 399 share(s).",
+          "composite": 0.4680016423660756
+        },
+        "rule": "sector_cap",
+        "detail": "UNKNOWN would exceed the 30% sector cap"
+      },
+      {
+        "order": {
+          "symbol": "UNP",
+          "side": "buy",
+          "qty": 39,
+          "order_type": "limit",
+          "limit_price": 306.33,
+          "stop_price": 302.14,
+          "time_in_force": "day",
+          "reason": "Risk 1% of $100,954 = $1,010; stop at $302.14; so 39 share(s).",
+          "composite": 0.619148890345157
+        },
+        "rule": "sector_cap",
+        "detail": "UNKNOWN would exceed the 30% sector cap"
+      }
+    ],
+    "skipped": [
+      {
+        "symbol": "KO",
+        "decision": "BUY",
+        "reason": "No trade: the risk budget or the position cap allows less than one share."
+      }
+    ],
+    "warnings": [
+      "CCL: Trimmed to the position cap.",
+      "KO: Trimmed to the position cap.",
+      "UNP: Trimmed to the position cap.",
+      "earnings_blackout unchecked: earnings_dates was not supplied.",
+      "sector unknown for CCL; counted in an UNKNOWN bucket.",
+      "sector unknown for UNP; counted in an UNKNOWN bucket."
+    ],
+    "approval": "not_needed",
+    "broker_mode": "alpaca_paper",
+    "broker_error": null,
+    "placed": [],
+    "submission": "dry_run",
+    "submission_error": null,
+    "dry_run": true,
+    "order_journal_paths": [],
+    "report_path": "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102T1608277636330000_run-20261102T160827-fe1ba66c76_run.md",
+    "journal_path": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/20261102T1608277636330000_run-20261102T160827-fe1ba66c76_multi_M8_orchestrator.md",
+    "agent_report_paths": [
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102/agentData_02112026-11-08_1H.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102/agentScoring_02112026-11-08_1H.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102/agentNews_02112026-11-08_1H.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102/agentRegime_02112026-11-08_1H.md",
+      "/home/aditya_/agentic-paper-trading-system/trading_system/run_reports/20261102/agentRisk_02112026-11-08_1H.md"
+    ],
+    "journal_files": {
+      "decisions_log": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/decisions.jsonl",
+      "trade_journal": "/home/aditya_/agentic-paper-trading-system/trading_system/memory/trade_journal.md"
+    },
+    "reflections": null,
+    "timeframe_mode": null,
+    "hourly_vetoed": null,
+    "hourly_warnings": null,
+    "hourly_run_id": null
+  },
+  "approval_expires_at": 1793636642.016181,
+  "trader": "Aditya",
+  "live_mode": true,
+  "pipeline_status": "no_orders"
+}

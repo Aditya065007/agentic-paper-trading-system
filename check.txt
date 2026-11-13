@@ -1,0 +1,63 @@
+/home/aditya_/agentic-paper-trading-system
+## integration/m1-m4-m8-m9...origin/integration/m1-m4-m8-m9
+?? check.txt
+?? verify_integration.py
+   214 trading_system/crew/agents.py
+   202 trading_system/crew/llm.py
+   167 trading_system/crew/memory.py
+    92 trading_system/crew/reporting.py
+     0 trading_system/crew/run_cycle.py
+     0 trading_system/crew/trading_crew.py
+  1751 trading_system/crew/trading_crew_multiStocks.py
+    65 trading_system/tests/test_decisions.py
+   188 trading_system/tests/test_llm_foundation.py
+   128 trading_system/tests/test_m10_ui.py
+   147 trading_system/tests/test_m9_memory_reporting.py
+   294 trading_system/tests/test_news.py
+   122 trading_system/tests/test_scoring.py
+  3370 total
+trading_system/crew/agents.py:40:def _json_scalar(value):
+trading_system/crew/agents.py:50:def build_compact_context(score_row=None, regime=None, headlines=(), recent_lessons=(), config=None):
+trading_system/crew/agents.py:89:def format_agent_prompt(role: str, context: Mapping, config=None) -> str:
+trading_system/crew/agents.py:109:def create_agents(tools_by_role=None, config=None, client_factory=None,
+trading_system/crew/agents.py:134:def materialize_advisory_agent(definition: AgentDefinition, agent_factory=None):
+trading_system/crew/agents.py:153:def validate_debate_bullets(response, maximum: int = 3) -> list[str]:
+trading_system/crew/agents.py:177:def validate_judge_output(response, influence_cap: float) -> dict:
+trading_system/crew/agents.py:205:def get_judge_adjustment(generate, prompt: str, config=None) -> dict:
+trading_system/crew/llm.py:18:def load_llm_config(source=None) -> dict:
+trading_system/crew/llm.py:40:def _validate_config(config) -> None:
+trading_system/crew/llm.py:99:def _verified_model(config: Mapping, role: str) -> str:
+trading_system/crew/llm.py:108:def _framework_llm(model, api_key, temperature, max_output_tokens, factory=None):
+trading_system/crew/llm.py:186:def create_llm_client(role: str, config=None, environ=None, llm_factory=None,
+trading_system/crew/memory.py:23:def _known_secrets() -> tuple[str, ...]:
+trading_system/crew/memory.py:30:def redact_text(value: str) -> str:
+trading_system/crew/memory.py:39:def sanitize(value, key=None):
+trading_system/crew/memory.py:58:def safe_component(value, fallback="record", maximum=64) -> str:
+trading_system/crew/memory.py:67:def safe_inline(value) -> str:
+trading_system/crew/memory.py:77:def _timestamp(value=None) -> str:
+trading_system/crew/memory.py:89:def _filename_timestamp(value: str) -> str:
+trading_system/crew/memory.py:94:def _json_block(value) -> str:
+trading_system/crew/memory.py:99:def _render_entry(entry: Mapping, timestamp: str) -> str:
+trading_system/crew/memory.py:133:def _write_markdown(entry: Mapping, directory, prefix: str) -> Path:
+trading_system/crew/memory.py:156:def record_memory(entry, memory_dir=None) -> Path:
+trading_system/crew/memory.py:162:def record_experiment(experiment, memory_dir=None) -> Path:
+trading_system/crew/reporting.py:13:def _json_block(value) -> str:
+trading_system/crew/reporting.py:18:def render_run_report(report) -> str:
+trading_system/crew/reporting.py:61:def _write_report(report, reports_dir=None, prefix="run") -> Path:
+trading_system/crew/reporting.py:82:def record_run_report(report, reports_dir=None) -> Path:
+trading_system/crew/reporting.py:87:def record_experiment_report(experiment, reports_dir=None) -> Path:
+trading_system/crew/trading_crew_multiStocks.py:256:def extract_mcp_result(result: Any) -> Any:
+trading_system/crew/trading_crew_multiStocks.py:430:def normalize_symbols(
+trading_system/crew/trading_crew_multiStocks.py:465:def validate_config(
+trading_system/crew/trading_crew_multiStocks.py:499:def get_alpaca_base_url() -> str:
+trading_system/crew/trading_crew_multiStocks.py:526:def get_alpaca_headers() -> dict[str, str]:
+trading_system/crew/trading_crew_multiStocks.py:549:def get_holdings() -> list[str]:
+trading_system/crew/trading_crew_multiStocks.py:622:def build_m1_price_map(
+trading_system/crew/trading_crew_multiStocks.py:698:def apply_m1_price_fallback(
+trading_system/crew/trading_crew_multiStocks.py:762:def make_decisions(
+trading_system/crew/trading_crew_multiStocks.py:1019:def make_plan(
+trading_system/crew/trading_crew_multiStocks.py:1135:def print_report(
+trading_system/crew/trading_crew_multiStocks.py:1355:async def run_strategy(
+trading_system/crew/trading_crew_multiStocks.py:1647:def parse_args() -> argparse.Namespace:
+trading_system/crew/trading_crew_multiStocks.py:1696:async def async_main() -> int:
+trading_system/crew/trading_crew_multiStocks.py:1741:def main() -> int:

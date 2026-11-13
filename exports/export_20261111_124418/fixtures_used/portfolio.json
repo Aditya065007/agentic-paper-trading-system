@@ -1,0 +1,7 @@
+{
+  "positions": [
+    {"symbol": "AAPL", "qty": 40, "avg_entry": 190.0, "market_value": 7600.0, "pl_pct": 2.1, "sector": "Technology"},
+    {"symbol": "AMD",  "qty": 50, "avg_entry": 160.0, "market_value": 8200.0, "pl_pct": 2.5, "sector": "Technology"},
+    {"symbol": "XOM",  "qty": 80, "avg_entry": 110.0, "market_value": 9000.0, "pl_pct": 2.3, "sector": "Energy"}
+  ]
+}

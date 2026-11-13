@@ -145,11 +145,14 @@ async def create_run(request):
         if timeframe not in {"1Day", "1Hour", "BOTH"}: raise ValueError("Timeframe must be 1Day, 1Hour or BOTH.")
         advisory = body.get("advisory", False)
         if not isinstance(advisory, bool): raise ValueError("Advisory must be true or false.")
+        crew_review = body.get("crew_review", False)
+        if not isinstance(crew_review, bool): raise ValueError("Crew review must be true or false.")
         lookback = body.get("lookback_days", 180)
         if isinstance(lookback, bool) or not isinstance(lookback, int) or not 1 <= lookback <= 2000:
             raise ValueError("Lookback must be between 1 and 2000 days.")
         run_id = str(uuid.uuid4())
-        config = {"symbols": symbols, "timeframe": timeframe, "advisory": advisory, "lookback_days": lookback}
+        config = {"symbols": symbols, "timeframe": timeframe, "advisory": advisory, "crew_review": crew_review,
+                  "lookback_days": lookback}
         record = {"id": run_id, "created_at": _now(), "status": "queued", "config": config, "approved_orders": []}
         store.save_run(record)
         _EXECUTOR.submit(_run_job, run_id, dict(config, approval=None))

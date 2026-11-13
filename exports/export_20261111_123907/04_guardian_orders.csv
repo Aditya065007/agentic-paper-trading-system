@@ -1,0 +1,4 @@
+outcome,symbol,side,qty,limit_price,stop_price,rule,detail_or_extra
+BLOCKED,CCL,buy,399,30.35,29.6,sector_cap,UNKNOWN would exceed the 30% sector cap
+BLOCKED,UNP,buy,39,306.33,302.14,sector_cap,UNKNOWN would exceed the 30% sector cap
+SKIPPED,,,,,,,"{""symbol"": ""KO"", ""decision"": ""BUY"", ""reason"": ""No trade: the risk budget or the position cap allows less than one share.""}"

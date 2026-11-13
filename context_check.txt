@@ -1,0 +1,35 @@
+5a9559e M8/M7: opt-in multi-agent CrewAI debate (Bull/Bear/Judge) with code-side threshold recheck
+c59b10f Document scoring and decision-engine decisions
+c823db9 Add offline end-to-end pipeline test
+27bff2b Record run report and journal from the orchestrator
+e886afb Wire M4 news scores into M2 scoring through the orchestrator
+## integration/m1-m4-m8-m9...origin/integration/m1-m4-m8-m9
+?? .crewai/
+?? check.txt
+?? context_check.txt
+?? run_output.txt
+?? trading_system/crew/trading_crew_multiStocks.py:Zone.Identifier
+?? trading_system/tests/test_decisions.py:Zone.Identifier
+?? verify_integration.py
+5a9559e M8/M7: opt-in multi-agent CrewAI debate (Bull/Bear/Judge) with code-side threshold recheck
+total 164
+-rw-r--r-- 1 aditya_ aditya_  673 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Judge_NVDA.md
+-rw-r--r-- 1 aditya_ aditya_  651 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bear_NVDA.md
+-rw-r--r-- 1 aditya_ aditya_  724 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bull_NVDA.md
+-rw-r--r-- 1 aditya_ aditya_  659 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Judge_MSFT.md
+-rw-r--r-- 1 aditya_ aditya_  627 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bear_MSFT.md
+-rw-r--r-- 1 aditya_ aditya_  627 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bull_MSFT.md
+-rw-r--r-- 1 aditya_ aditya_  662 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Judge_AAPL.md
+-rw-r--r-- 1 aditya_ aditya_  618 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bear_AAPL.md
+-rw-r--r-- 1 aditya_ aditya_  635 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M7_Bull_AAPL.md
+-rw-r--r-- 1 aditya_ aditya_  576 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_multi_M8_orchestrator.md
+-rw-r--r-- 1 aditya_ aditya_  655 Oct 17 01:45 20261016T2014548596860000_run-20261016T201454-7bfc4fae00_multi_M7_Judge_NVDA.md
+total 44
+-rw-r--r-- 1 aditya_ aditya_ 8088 Oct 17 01:59 20261016T2028418830350000_run-20261016T202841-1527172733_run.md
+-rw-r--r-- 1 aditya_ aditya_ 8099 Oct 17 01:45 20261016T2014548596860000_run-20261016T201454-7bfc4fae00_run.md
+-rw-r--r-- 1 aditya_ aditya_ 8780 Oct 16 17:25 20261016T1154510178680000_run-20261016T115451-54f68c708b_run.md
+-rw-r--r-- 1 aditya_ aditya_ 7668 Oct 16 17:15 20261016T1145081201280000_run-20261016T114508-f113940bcb_run.md
+Name: crewai
+Version: 1.15.23
+Name: litellm
+Version: 1.104.0

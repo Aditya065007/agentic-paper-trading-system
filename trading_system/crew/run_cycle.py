@@ -102,8 +102,46 @@ def _validate(config) -> dict:
         raise CycleConfigError("reflect_dry_run needs reflect to be true.")
     return {"symbols": [s.strip().upper() for s in symbols], "timeframe": timeframe,
             "lookback_days": lookback, "advisory": bool(config.get("advisory")),
+            "crew_review": bool(config.get("crew_review")),
             "debate_band": band, "approval": approval, "submit": submit, "env": config.get("env"),
             "reflect": reflect, "reflect_dry_run": reflect_dry_run}
+
+
+MAX_CREW_REVIEW_ROWS = 6   # the crew makes two LLM calls per stock; keep the token cost bounded
+
+
+def _crew_review_step(cfg: dict, result: dict) -> dict:
+    """Thin CrewAI crew (crew/trading_crew.py): a Scoring agent and a Risk agent read the finished
+    results through read-only tools and report them in words. Advisory only: it never scores, sizes,
+    approves or places anything, and it never raises or changes the cycle. Only BUY/SELL rows are
+    reviewed (HOLD rows have nothing to check), at most MAX_CREW_REVIEW_ROWS."""
+    skipped = {"status": "skipped", "report": None, "tasks": 0, "reviewed": [], "warnings": []}
+    try:
+        rows = [r for r in (result.get("decisions") or [])
+                if isinstance(r, dict) and r.get("decision") in ("BUY", "SELL")][:MAX_CREW_REVIEW_ROWS]
+        if not rows:
+            skipped["warnings"].append("Crew review skipped: no BUY or SELL decision to review.")
+            return skipped
+        import copy
+        from trading_system.crew import advisory, llm as llm_module, trading_crew
+        from trading_system.servers.tools import broker
+        sector_map = gp.load_sector_map()
+        snapshot = broker.get_portfolio_snapshot(sector_map=sector_map)
+        snapshot["sectors"] = sector_map
+        advisory._disable_tracing_by_default()
+        advisory.install_groq_message_compat()
+        # The News role's small model is reused: the crew only reads and restates tool results.
+        client = llm_module.create_llm_client("news")
+        out = trading_crew.run_thin_crew(copy.deepcopy(rows), snapshot, client.framework_client)
+        return {"status": out.get("status", "ok"), "report": out.get("report"), "tasks": out.get("tasks", 0),
+                "reviewed": [r["symbol"] for r in rows], "warnings": []}
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        key = os.environ.get("GROQ_API_KEY", "").strip()
+        if key:
+            detail = detail.replace(key, "[REDACTED]")
+        return {"status": "unavailable", "report": None, "tasks": 0, "reviewed": [],
+                "warnings": [f"Crew review unavailable ({detail[:200]}); the cycle is unchanged."]}
 
 
 def _reflect_step(cfg: dict, result: dict) -> dict:
@@ -168,6 +206,7 @@ async def run_cycle(config: dict) -> dict:
 
         plan = result.get("guarded_plan") or {}
         approved_orders = plan.get("approved", [])
+        crew_review = _crew_review_step(cfg, result) if cfg["crew_review"] else None
 
         placed, approval_state = [], "not_needed"
         submission, submission_error, extra_warnings = "dry_run", None, []
@@ -238,6 +277,7 @@ async def run_cycle(config: dict) -> dict:
         "agent_report_paths": result.get("agent_report_paths"),
         "journal_files": result.get("journal_files"),
         "reflections": reflections,
+        "crew_review": crew_review,
         "timeframe_mode": result.get("timeframe_mode"),
         "hourly_vetoed": result.get("hourly_vetoed"),
         "hourly_warnings": result.get("hourly_warnings"),
@@ -263,6 +303,9 @@ def _parse_cli(argv=None) -> dict:
                              "explicit list) and ALPACA_ORDERS_ENABLED=true plus BROKER_MODE=alpaca_paper "
                              "on the command line")
     parser.add_argument("--advisory", action="store_true", help="run the M7 Bull/Bear/Judge debate")
+    parser.add_argument("--crew-review", action="store_true",
+                        help="after the run, let the thin CrewAI crew (Scoring and Risk agents) read the BUY/SELL "
+                             "results through read-only tools and report them (advisory; costs Groq tokens)")
     parser.add_argument("--reflect", action="store_true",
                         help="reflect on closed trades (confirmed live fills only)")
     parser.add_argument("--reflect-dry-run", action="store_true",
@@ -270,6 +313,8 @@ def _parse_cli(argv=None) -> dict:
     args = parser.parse_args(argv)
     config = {"symbols": args.symbols, "advisory": args.advisory,
               "reflect": args.reflect or args.reflect_dry_run, "reflect_dry_run": args.reflect_dry_run}
+    if args.crew_review:
+        config["crew_review"] = True
     if args.timeframe:
         config["timeframe"] = args.timeframe
     if args.approve:

@@ -62,6 +62,7 @@ Options of `run_cycle`:
 |---|---|
 | `--timeframe 1Day\|1Hour\|BOTH` | Daily is the default. `BOTH`: daily decides, hourly may only veto a daily BUY. |
 | `--advisory` | Run the Bull, Bear and Judge debate on borderline stocks (uses Groq). |
+| `--crew-review` | After the run, the thin CrewAI crew (a Scoring agent and a Risk agent) reads the BUY/SELL results through read-only tools and reports them in words. Advisory only; changes no decision or order; uses Groq tokens. |
 | `--approve all\|SYM,SYM` | The human approval. Without it the cycle stops at proposals. With it alone, orders are DRY-RUN. |
 | `--submit` | Send the approved orders to the Alpaca paper account. Needs `--approve SYM,SYM` (an explicit list). |
 | `--reflect` | After the cycle, write a lesson for each newly closed trade (confirmed live fills only). |
@@ -127,7 +128,8 @@ trading_system/
     guarded_plan.py             sizing and guardian step, order placement
     agents.py, llm.py, advisory.py    M7: agent definitions, Groq wiring, the debate
     reflection.py               Reflection agent for closed trades
-    trading_crew.py             thin CrewAI crew (Scoring and Risk agents as read-only tool callers)
+    trading_crew.py             thin CrewAI crew (Scoring and Risk agents as read-only tool callers); run by
+                                run_cycle.py when --crew-review (or the dashboard checkbox) is on
     memory.py, reporting.py, agent_files.py, journal.py   M9: reports, per-agent files, journal, lessons
   ui/app.py                     Streamlit viewer of saved reports (M10, read-only)
   fixtures/                     sample account and portfolio for offline mode

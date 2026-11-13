@@ -1,0 +1,139 @@
+/home/aditya_/agentic-paper-trading-system/.venv/lib/python3.11/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.
+  warnings.warn(
+[10/16/26 17:15:12] INFO     Processing request of type            server.py:733
+                             ListToolsRequest                                   
+                    INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+[10/16/26 17:15:13] INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+                    INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+                    INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+Error executing listener call_llm_and_parse: litellm.BadRequestError: GroqException - {"error":{"message":"'messages.0' : for 'role:system' the following must be satisfied[('messages.0' : property 'cache_breakpoint' is unsupported)]","type":"invalid_request_error"}}
+
+
+==========================================================================================
+STARTING DIRECT-MCP TRADING ORCHESTRATOR
+==========================================================================================
+Symbols: ['AAPL', 'MSFT', 'NVDA', 'JPM']
+Lookback: 180 days
+Timeframe: 1Day
+Holdings: []
+Strategy engine: DETERMINISTIC PYTHON
+LLM decision-making: DISABLED
+LLM advisory: ENABLED (M7 debate, band=spec; the Judge may move a composite by at most the configured cap and code rechecks the thresholds)
+MCP execution: DIRECT ClientSession / stdio
+
+MCP tools: get_news, score_headlines, fetch_ohlcv_batch, calculate_indicators_batch, fetch_ohlcv, calculate_rsi, calculate_macd, calculate_m2_batch
+
+MCP → fetch_ohlcv_batch
+Arguments: {'lookback_days': 180, 'symbols': ['AAPL', 'MSFT', 'NVDA', 'JPM', 'SPY'], 'timeframe': '1Day'}
+
+M1 fetch completed.
+
+M4 news scores: {'AAPL': None, 'MSFT': None, 'NVDA': None, 'JPM': None}
+M4 warning: NEWSAPI_KEY is not configured; no headlines were fetched.
+M4 warning: NewsAPI credentials are unavailable.
+
+MCP → calculate_m2_batch
+Arguments: {'symbols': ['AAPL', 'MSFT', 'NVDA', 'JPM'], 'timeframe': '1Day', 'sleeve': 'core', 'sector': None, 'news_scores': {'AAPL': None, 'MSFT': None, 'NVDA': None, 'JPM': None}}
+
+M2 indicators + scoring completed.
+
+Running deterministic decision engine...
+
+------------------------------------------------------------------------------------------
+M7 ADVISORY DEBATE (band=spec, thresholds={'buy': 0.4, 'sell': -0.4}, cap=+/-0.15)
+------------------------------------------------------------------------------------------
+
+  AAPL | composite=0.4201 | triage=clear_buy | decision=BUY
+    Bull : (unavailable)
+    Bear : (unavailable)
+    Judge: adjustment=+0.0000 | Invalid or unavailable Judge output; no adjustment.
+    Result: composite 0.4201 -> 0.4201 | BUY -> BUY
+
+  MSFT | composite=0.4080 | triage=clear_buy | decision=BUY
+    Bull : (unavailable)
+    Bear : (unavailable)
+    Judge: adjustment=+0.0000 | Invalid or unavailable Judge output; no adjustment.
+    Result: composite 0.4080 -> 0.4080 | BUY -> BUY
+
+  NVDA | composite=-0.3869 | triage=borderline | decision=HOLD
+    Bull : (unavailable)
+    Bear : (unavailable)
+    Judge: adjustment=+0.0000 | Invalid or unavailable Judge output; no adjustment.
+    Result: composite -0.3869 -> -0.3869 | HOLD -> HOLD
+
+==========================================================================================
+DETERMINISTIC PAPER TRADING REPORT
+==========================================================================================
+
+Symbols: ['AAPL', 'MSFT', 'NVDA', 'JPM']
+Lookback: 180 days
+Timeframe: 1Day
+Holdings: []
+
+Strategy engine: DETERMINISTIC PYTHON
+LLM decision-making: DISABLED
+Order submission: DISABLED
+
+------------------------------------------------------------------------------------------
+M1 — MARKET DATA
+------------------------------------------------------------------------------------------
+  AAPL | bars=125 | last_close=341.91 | as_of=2026-10-15 04:00:00+00:00
+  MSFT | bars=125 | last_close=539.36 | as_of=2026-10-15 04:00:00+00:00
+  NVDA | bars=125 | last_close=217.33 | as_of=2026-10-15 04:00:00+00:00
+   JPM | bars=125 | last_close=335.52 | as_of=2026-10-15 04:00:00+00:00
+   SPY | bars=125 | last_close=771.77 | as_of=2026-10-15 04:00:00+00:00
+
+------------------------------------------------------------------------------------------
+M2 — INDICATORS + DETERMINISTIC SCORING
+------------------------------------------------------------------------------------------
+  AAPL | regime=ranging    | ADX=17.69765749852205 | composite=0.420134116786768 | triage=clear_buy
+  MSFT | regime=trending   | ADX=39.1734865899116 | composite=0.40801540285164983 | triage=clear_buy
+  NVDA | regime=ranging    | ADX=16.528339615155694 | composite=-0.38694816618625144 | triage=borderline
+   JPM | regime=trending   | ADX=25.111956408003866 | composite=-0.20227737977690574 | triage=hold
+
+------------------------------------------------------------------------------------------
+DETERMINISTIC DECISIONS
+------------------------------------------------------------------------------------------
+  AAPL | BUY  | composite=0.420134116786768 | triage=clear_buy | regime=ranging    | M2-B deterministic BUY; composite=0.4201.
+  MSFT | BUY  | composite=0.40801540285164983 | triage=clear_buy | regime=trending   | M2-B deterministic BUY; composite=0.4080.
+  NVDA | HOLD | composite=-0.38694816618625144 | triage=borderline | regime=ranging    | borderline, awaiting M7 debate
+   JPM | HOLD | composite=-0.20227737977690574 | triage=hold  | regime=trending   | M2-B deterministic HOLD; triage=hold, composite=-0.2023.
+
+------------------------------------------------------------------------------------------
+STARTER ACTION PLAN
+------------------------------------------------------------------------------------------
+  AAPL | BUY  | qty=58    | value=20000.00 | price=341.91
+  MSFT | BUY  | qty=37    | value=20000.00 | price=539.36
+  NVDA | HOLD | qty=0     | value=0.00 | price=217.33
+   JPM | HOLD | qty=0     | value=0.00 | price=335.52
+
+==========================================================================================
+END REPORT
+==========================================================================================
+
